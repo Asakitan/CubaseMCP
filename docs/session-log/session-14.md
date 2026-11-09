@@ -12,7 +12,7 @@ The current isolated PID 39068 had constructed controller 3.5; its no-write MIDI
 
 ## Work
 
-- Added a second fixed, mutually exclusive entry to the existing approved diagnostic DLL. It validates the Cubase build, observed host-class vtable, fixed path IID, registration record and factory pointer; calls that lookup once on its worker thread; checks the returned `FNPath` vtable; and calls the fixed release slot only on a match. It never calls a path setter or project operation. The explicit loader accepts only the two fixed entries and prevents replay.
+- Added a second fixed, mutually exclusive entry to the existing approved diagnostic DLL. It validates the Cubase build, observed host-class vtable, fixed path IID, registration record and factory pointer; calls that lookup once on its worker thread; checks the returned `FNPath` vtable; and calls the fixed release slot only on a match. It never calls a path setter or project operation. At session 14 the explicit loader accepted only those two fixed entries and prevented replay; session 15 added a separately named fixed diagnostic image.
 - Traced the separate `0x3933f10` caller to drag-data filename enumeration, and traced the host-open submission branches far enough to distinguish an immediate return from enqueue or completion. Traced the save-preflight predicate to a byte also used in startup-marker handling. Traced MIDI scanner inquiry registration and rebuild receiver provenance without asserting a cause for the current activation failure.
 - Preserved the previous built diagnostic module before building the new one; no production MIDI controller or MCP server code changed.
 

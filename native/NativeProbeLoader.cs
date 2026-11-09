@@ -73,7 +73,8 @@ namespace CubaseAiMcp
 
         static uint EntryRva(string path, string wanted)
         {
-            if (wanted != "StartProbe" && wanted != "StartPathProbe") throw new InvalidDataException("Unknown fixed diagnostic entry.");
+            if (wanted != "StartProbe" && wanted != "StartPathProbe" && wanted != "StartPathRoundTripProbe")
+                throw new InvalidDataException("Unknown fixed diagnostic entry.");
             if (new FileInfo(path).Length > 16 * 1024 * 1024) throw new InvalidDataException("Probe image exceeds the bound.");
             byte[] image = File.ReadAllBytes(path);
             int pe = Header(image);
@@ -115,23 +116,32 @@ namespace CubaseAiMcp
 
         public static Result LoadAndStart(int processId, long expectedCreationFileTime, string workspaceRoot)
         {
-            return LoadAndStartFixed(processId, expectedCreationFileTime, workspaceRoot, false);
+            return LoadAndStartFixed(processId, expectedCreationFileTime, workspaceRoot, 0);
         }
 
         public static Result LoadAndStartPathProbe(int processId, long expectedCreationFileTime, string workspaceRoot)
         {
-            return LoadAndStartFixed(processId, expectedCreationFileTime, workspaceRoot, true);
+            return LoadAndStartFixed(processId, expectedCreationFileTime, workspaceRoot, 1);
         }
 
-        static Result LoadAndStartFixed(int processId, long expectedCreationFileTime, string workspaceRoot, bool pathProbe)
+        public static Result LoadAndStartPathRoundTrip(int processId, long expectedCreationFileTime, string workspaceRoot)
         {
-            Result report = new Result { ProcessId = processId, ModulePath = Path.GetFullPath(Path.Combine(workspaceRoot, "artifacts", "native-probe", "CubaseMcpNativeProbe.dll")) };
+            return LoadAndStartFixed(processId, expectedCreationFileTime, workspaceRoot, 2);
+        }
+
+        static Result LoadAndStartFixed(int processId, long expectedCreationFileTime, string workspaceRoot, int kind)
+        {
+            if (kind < 0 || kind > 2) throw new InvalidDataException("Unknown fixed diagnostic kind.");
+            string directory = kind == 2 ? "native-path-roundtrip" : "native-probe";
+            string filename = kind == 2 ? "CubaseMcpPathRoundTripProbe.dll" : "CubaseMcpNativeProbe.dll";
+            string entryName = kind == 2 ? "StartPathRoundTripProbe" : kind == 1 ? "StartPathProbe" : "StartProbe";
+            Result report = new Result { ProcessId = processId, ModulePath = Path.GetFullPath(Path.Combine(workspaceRoot, "artifacts", directory, filename)) };
             IntPtr process = IntPtr.Zero, pathBuffer = IntPtr.Zero, thread = IntPtr.Zero;
             bool loadStarted = false, loadCompleted = false;
             try
             {
                 if (IntPtr.Size != 8) throw new InvalidOperationException("An AMD64 loader is required.");
-                uint entry = EntryRva(report.ModulePath, pathProbe ? "StartPathProbe" : "StartProbe");
+                uint entry = EntryRva(report.ModulePath, entryName);
                 using (Process target = Process.GetProcessById(processId))
                 {
                     if (target.ProcessName != "Cubase 16" || !String.Equals(target.MainModule.FileName,

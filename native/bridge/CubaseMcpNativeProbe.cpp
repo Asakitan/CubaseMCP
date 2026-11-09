@@ -104,12 +104,21 @@ struct PathProbeResult {
     bool objectPresent;
     bool vtableMatched;
     bool releaseAttempted;
+    bool setterAttempted;
+    bool setterReturned;
+    bool directoryWide;
+    bool filenameWide;
+    bool directoryMatches;
+    bool filenameMatches;
     long callResult;
+    long setterResult;
+    unsigned directoryLength;
+    unsigned filenameLength;
     DWORD exceptionCode;
     DWORD threadId;
 };
 
-bool reportPath(const char* stage, const PathProbeResult& result, bool startRecord) {
+bool reportPath(const char* stage, const PathProbeResult& result, bool startRecord, bool roundTrip = false) {
     wchar_t directory[MAX_PATH];
     const DWORD length = GetModuleFileNameW(module, directory, MAX_PATH);
     if (!length || length >= MAX_PATH) return false;
@@ -118,18 +127,25 @@ bool reportPath(const char* stage, const PathProbeResult& result, bool startReco
     *slash = L'\0';
     wchar_t finalPath[MAX_PATH], tempPath[MAX_PATH];
     const DWORD pid = GetCurrentProcessId();
-    const wchar_t* kind = startRecord ? L"path-start" : L"path-result";
+    const wchar_t* kind = roundTrip ? (startRecord ? L"roundtrip-start" : L"roundtrip-result") :
+        (startRecord ? L"path-start" : L"path-result");
     if (swprintf_s(finalPath, L"%s\\%s-%lu.json", directory, kind, pid) < 0 ||
         swprintf_s(tempPath, L"%s\\%s-%lu.tmp", directory, kind, pid) < 0) return false;
     char json[768];
     const int count = sprintf_s(json,
         "{\"processId\":%lu,\"stage\":\"%s\",\"threadId\":%lu,\"profileMatched\":%s,"
         "\"callStarted\":%s,\"callReturned\":%s,\"callResult\":%ld,\"objectPresent\":%s,"
-        "\"vtableMatched\":%s,\"releaseAttempted\":%s,\"exceptionCode\":%lu}\n",
+        "\"vtableMatched\":%s,\"releaseAttempted\":%s,\"setterAttempted\":%s,"
+        "\"setterReturned\":%s,\"setterResult\":%ld,\"directoryWide\":%s,\"filenameWide\":%s,"
+        "\"directoryLength\":%u,\"filenameLength\":%u,\"directoryMatches\":%s,\"filenameMatches\":%s,\"exceptionCode\":%lu}\n",
         pid, stage, result.threadId, result.profileMatched ? "true" : "false",
         result.callStarted ? "true" : "false", result.callReturned ? "true" : "false",
         result.callResult, result.objectPresent ? "true" : "false",
         result.vtableMatched ? "true" : "false", result.releaseAttempted ? "true" : "false",
+        result.setterAttempted ? "true" : "false", result.setterReturned ? "true" : "false", result.setterResult,
+        result.directoryWide ? "true" : "false", result.filenameWide ? "true" : "false",
+        result.directoryLength, result.filenameLength, result.directoryMatches ? "true" : "false",
+        result.filenameMatches ? "true" : "false",
         result.exceptionCode);
     if (count <= 0) return false;
     HANDLE file = CreateFileW(tempPath, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -143,6 +159,68 @@ bool reportPath(const char* stage, const PathProbeResult& result, bool startReco
         return false;
     }
     return true;
+}
+
+bool pathFieldMatches(const unsigned char* object, size_t offset, const wchar_t* expected,
+                      bool* wide, unsigned* length) {
+    if (!readable(object + offset, 0x18)) return false;
+    const auto data = *reinterpret_cast<const void* const*>(object + offset + 8);
+    const uint32_t flags = *reinterpret_cast<const uint32_t*>(object + offset + 0x10);
+    *wide = (flags & 0x40000000U) != 0;
+    *length = flags & 0x3fffffffU;
+    const size_t expectedLength = wcslen(expected);
+    if (*length > 512 || *length != expectedLength || !data) return false;
+    if (*wide) {
+        const size_t bytes = static_cast<size_t>(*length) * sizeof(wchar_t);
+        return readable(data, bytes) && std::memcmp(data, expected, bytes) == 0;
+    }
+    if (!readable(data, *length)) return false;
+    const auto bytes = static_cast<const unsigned char*>(data);
+    for (unsigned i = 0; i < *length; ++i)
+        if (expected[i] > 0x7f || bytes[i] != static_cast<unsigned char>(expected[i])) return false;
+    return true;
+}
+
+// Fixed fixture only: mutate one temporary path object, inspect its own fields,
+// and release it. No project path, host-open method, UI or file operation is requested.
+void guardedPathRoundTrip(PathProbeResult* result, uintptr_t base, void* classes) {
+    __try {
+        using Lookup = long (__fastcall*)(void*, const unsigned char*, void**);
+        using Setter = long (__fastcall*)(void*, const wchar_t*, int32_t);
+        using Release = unsigned long (__fastcall*)(void*);
+        const wchar_t* input = L"E:\\VC\\CubaseMCP\\artifacts\\live-smoke\\\u8def\u5f84\u6d4b\u8bd5.cpr";
+        const wchar_t* directory = L"E:\\VC\\CubaseMCP\\artifacts\\live-smoke\\";
+        const wchar_t* filename = L"\u8def\u5f84\u6d4b\u8bd5.cpr";
+        auto classVtable = *reinterpret_cast<void***>(classes);
+        void* object = nullptr;
+        result->callStarted = true;
+        result->callResult = reinterpret_cast<Lookup>(classVtable[3])(classes, kPathIid, &object);
+        result->callReturned = true;
+        result->objectPresent = object != nullptr;
+        if (result->callResult != 0 || !object || !readable(object, sizeof(void*))) return;
+        auto objectVtable = *reinterpret_cast<uintptr_t**>(object);
+        auto complete = static_cast<unsigned char*>(object) - 0x10;
+        if (!readable(complete, 0xe8) || !readable(objectVtable, 5 * sizeof(void*))) return;
+        auto primary = *reinterpret_cast<uintptr_t**>(complete);
+        result->vtableMatched = reinterpret_cast<uintptr_t>(objectVtable) == base + 0x4831d70 &&
+            reinterpret_cast<uintptr_t>(primary) == base + 0x4831bc0 && readable(primary, 0x1a8) &&
+            objectVtable[2] == base + 0x15c31c8 && objectVtable[4] == base + 0x3b0f4b0 &&
+            primary[0x178 / sizeof(void*)] == base + 0x3b0e0e0 &&
+            primary[0x180 / sizeof(void*)] == base + 0x3b0e860 &&
+            primary[0x1a0 / sizeof(void*)] == base + 0x3b0ddf0;
+        if (!result->vtableMatched) return;
+        result->setterAttempted = true;
+        result->setterResult = reinterpret_cast<Setter>(objectVtable[4])(object, input, 0);
+        result->setterReturned = true;
+        if (result->setterResult == 0) {
+            result->directoryMatches = pathFieldMatches(complete, 0xc8, directory,
+                &result->directoryWide, &result->directoryLength);
+            result->filenameMatches = pathFieldMatches(complete, 0x18, filename,
+                &result->filenameWide, &result->filenameLength);
+        }
+        result->releaseAttempted = true;
+        reinterpret_cast<Release>(objectVtable[2])(object);
+    } __except (EXCEPTION_EXECUTE_HANDLER) { result->exceptionCode = GetExceptionCode(); }
 }
 
 // One fixed service lookup; only a newly constructed path object may be released.
@@ -291,24 +369,25 @@ DWORD WINAPI probeWorker(void*) {
     return written ? 0 : 9;
 }
 
-DWORD WINAPI pathProbeWorker(void*) {
+DWORD pathProbeWorkerCore(bool roundTrip) {
     PathProbeResult result{};
     result.threadId = GetCurrentThreadId();
     result.callResult = -1;
+    result.setterResult = -1;
     wchar_t path[MAX_PATH];
     const DWORD n = GetModuleFileNameW(nullptr, path, MAX_PATH);
     const wchar_t* name = n ? wcsrchr(path, L'\\') : nullptr;
     if (!n || n >= MAX_PATH || !name || _wcsicmp(name + 1, L"Cubase 16.exe") != 0 || !versionMatches(path))
-        return reportPath("host_version_mismatch", result, false) ? 3 : 9;
+        return reportPath("host_version_mismatch", result, false, roundTrip) ? 3 : 9;
     const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
     auto dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
     if (!readable(dos, sizeof(*dos)) || dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew < 0 || dos->e_lfanew > 0x100000)
-        return reportPath("invalid_image", result, false) ? 4 : 9;
+        return reportPath("invalid_image", result, false, roundTrip) ? 4 : 9;
     auto nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
     if (!readable(nt, sizeof(*nt)) || nt->Signature != IMAGE_NT_SIGNATURE ||
         nt->FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64 || nt->FileHeader.TimeDateStamp != kTimestamp ||
         nt->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC || nt->OptionalHeader.SizeOfImage <= 0x59a0410)
-        return reportPath("build_mismatch", result, false) ? 4 : 9;
+        return reportPath("build_mismatch", result, false, roundTrip) ? 4 : 9;
     auto classes = reinterpret_cast<void*>(base + 0x5523458);
     auto record = reinterpret_cast<const unsigned char*>(base + 0x59a03d0);
     auto global = reinterpret_cast<void**>(base + 0x5889af0);
@@ -319,15 +398,30 @@ DWORD WINAPI pathProbeWorker(void*) {
         std::memcmp(record + 0x18, kPathIid, sizeof(kPathIid)) != 0 ||
         *reinterpret_cast<const uintptr_t*>(record + 0x28) != base + 0x3b0ed80 ||
         !*global || !readable(*global, sizeof(void*)) || *reinterpret_cast<uintptr_t*>(*global) != base + 0x483c260)
-        return reportPath("profile_or_registry_mismatch", result, false) ? 5 : 9;
+        return reportPath("profile_or_registry_mismatch", result, false, roundTrip) ? 5 : 9;
+    if (roundTrip) {
+        auto fileSystemGlobal = reinterpret_cast<uintptr_t*>(base + 0x5530450);
+        if (!readable(fileSystemGlobal, sizeof(*fileSystemGlobal)) || *fileSystemGlobal != base + 0x59a01b0 ||
+            !readable(reinterpret_cast<void*>(*fileSystemGlobal), sizeof(void*)) ||
+            *reinterpret_cast<uintptr_t*>(*fileSystemGlobal) != base + 0x48313f0 ||
+            !readable(reinterpret_cast<void*>(base + 0x48313f0), 0x230) ||
+            reinterpret_cast<const uintptr_t*>(base + 0x48313f0)[0x228 / sizeof(void*)] != base + 0x3b09be0)
+            return reportPath("filesystem_profile_mismatch", result, false, true) ? 5 : 9;
+    }
     result.profileMatched = true;
-    if (!reportPath("started", result, true)) return 9;
-    guardedPathLookup(&result, base, classes);
+    if (!reportPath("started", result, true, roundTrip)) return 9;
+    if (roundTrip) guardedPathRoundTrip(&result, base, classes);
+    else guardedPathLookup(&result, base, classes);
     const char* stage = result.exceptionCode ? "host_exception" : !result.callReturned ? "call_incomplete" :
         result.callResult != 0 ? "lookup_failed" : !result.objectPresent ? "object_missing" :
-        !result.vtableMatched ? "unexpected_object" : !result.releaseAttempted ? "release_not_attempted" : "release_returned";
-    return reportPath(stage, result, false) ? 0 : 9;
+        !result.vtableMatched ? "unexpected_object" : roundTrip && !result.setterReturned ? "setter_incomplete" :
+        roundTrip && result.setterResult != 0 ? "setter_failed" : roundTrip && !(result.directoryMatches && result.filenameMatches) ? "path_mismatch" :
+        !result.releaseAttempted ? "release_not_attempted" : roundTrip ? "roundtrip_matched" : "release_returned";
+    return reportPath(stage, result, false, roundTrip) ? 0 : 9;
 }
+
+DWORD WINAPI pathProbeWorker(void*) { return pathProbeWorkerCore(false); }
+DWORD WINAPI pathRoundTripWorker(void*) { return pathProbeWorkerCore(true); }
 
 extern "C" __declspec(dllexport) DWORD WINAPI StartProbe(void*) {
     if (InterlockedCompareExchange(&started, 1, 0) != 0) return 2;
@@ -346,6 +440,17 @@ extern "C" __declspec(dllexport) DWORD WINAPI StartPathProbe(void*) {
     if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
         reinterpret_cast<LPCWSTR>(&StartPathProbe), &pinned)) return 1;
     HANDLE thread = CreateThread(nullptr, 0, pathProbeWorker, nullptr, 0, nullptr);
+    if (!thread) return 1;
+    CloseHandle(thread);
+    return 0;
+}
+
+extern "C" __declspec(dllexport) DWORD WINAPI StartPathRoundTripProbe(void*) {
+    if (InterlockedCompareExchange(&started, 1, 0) != 0) return 2;
+    HMODULE pinned = nullptr;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+        reinterpret_cast<LPCWSTR>(&StartPathRoundTripProbe), &pinned)) return 1;
+    HANDLE thread = CreateThread(nullptr, 0, pathRoundTripWorker, nullptr, 0, nullptr);
     if (!thread) return 1;
     CloseHandle(thread);
     return 0;

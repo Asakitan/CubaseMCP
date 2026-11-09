@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-foreach ($name in @('Invoke-NativeProbe.ps1', 'Invoke-PathServiceProbe.ps1')) {
+foreach ($name in @('Invoke-NativeProbe.ps1', 'Invoke-PathServiceProbe.ps1', 'Invoke-PathRoundTripProbe.ps1')) {
     $path = Join-Path $root ('scripts\' + $name)
     $errors = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$errors)

@@ -33,4 +33,6 @@ Separately, coordinator evidence `artifacts/ipc/midi-port-registry-names-3720.js
 
 The read-only script accepts a PID but rejects mismatch with `artifacts/runtime/cubase-launch.json`, wrong executable/version/base, absent private-desktop ownership, invalid vtables, excess sizes and changing headers. It returns a nonzero exit on errors. It does not alter state or dereference arbitrary input addresses. Every observation must use fresh process identity and addresses.
 
+The scanner reader also verifies the PE machine and timestamp and reports the `+0x308` receiver. When that receiver matches the fixed static object, it double-reads its two vtables and reports the profile match; a different receiver is reported without dereferencing it. The current-process observation and its limitations are in `midi-activation-15.md`.
+
 Recover the source and lifecycle of each record's two empty strings and detail range, the circumstances under which the scanner publishes or refreshes this vector, and the exact registry-to-scanner mapping before proposing any repair. A current-state snapshot is not event history, and neither a copied project nor a forced mutation proves native project creation or a successful bridge.

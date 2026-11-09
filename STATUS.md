@@ -2,12 +2,19 @@
 
 Version: 0.1.0. The complete user goal remains active and is not achieved. The current server has 23 MIDI Remote tools; project creation, saving, event editing and parameterized rendering are not implemented, and current live MIDI operations have not passed.
 
-## Current session 14 evidence
+## Current session 15 evidence
+
+- A separately named fixed diagnostic image, loaded once into isolated PID 39068, obtained an `FNPath` interface and called its setter with a synthetic Unicode absolute path and mode `0`. The setter returned 0; bounded direct reads of its directory and filename fields matched the input, and the release call returned without exception. The synthetic CPR path was absent before and after; Cubase remained responsive immediately afterward (`artifacts/native-path-roundtrip/roundtrip-result-39068.json`). This is a temporary object test, not a host-open, create or save operation; see `docs/native-probe.md`.
+- A current read-only scanner snapshot observed the static receiver and both expected vtables, with two MCP-named scanner records and zero-length detail ranges (`artifacts/ipc/midi-scanner-receiver-39068-ffc4f125c0514c3a9fffeb2261f5c2c7.json`). It does not establish inquiry transmission or the cause of missing MIDI mapping activation (`docs/midi-activation-15.md`).
+- Static application dispatch connects a conditional `OpenFile` consumer branch to the app's open slot, but the handler discards its result; another save-before-file-open path can invoke an alert after checking the original input path. Neither finding establishes prompt-free execution or completed persistence (`docs/project-dispatch-15.md`, `docs/project-lifecycle-15.md`).
+- Both fixed diagnostic images remain pinned in PID 39068. Current 3.5 MIDI status has not produced a successful handshake; project create/save/edit/reopen and rendering remain unimplemented.
+
+## Session 14 evidence
 
 - In isolated PID 39068, a fixed in-process diagnostic called `IHostClasses` once for the observed path IID. It received return `0` and a non-null `FNPath` interface with the expected vtable; the release call returned without an exception. The separately recorded worker thread was 39876, and Cubase remained responsive at the immediate check (`artifacts/native-probe/path-result-39068.json`). No path setter, project operation, dialog input or foreground action was performed. This is not an MCP project-open result; see `docs/native-probe.md`.
 - Static follow-up identified the prior `0x3933f10` lead as drag-data filename enumeration, not an established background project-open entry. The host-open queued branch ignores its enqueue result and returns zero; its synchronous branch returns an inverted boolean of a separate application call. Completion, prompt and thread contracts remain unverified (`docs/project-open-14.md`).
 - The save-preflight predicate reads a byte also used in startup-marker handling; its semantic meaning and runtime effect remain unresolved (`docs/project-save-preflight.md`). Scanner inquiry registration and rebuild/receiver paths were traced without establishing that name-only detection needs an identity response (`docs/midi-activation-14.md`).
-- The diagnostic module is pinned in PID 39068 and its two fixed entries share a one-shot guard. The 3.5 MIDI status request still has no successful current-process handshake; project create/save/edit/reopen and rendering remain unimplemented.
+- At the session 14 observation the diagnostic module was pinned in PID 39068 and its two then-built entries shared a one-shot guard. The 3.5 MIDI status request had no successful current-process handshake; project create/save/edit/reopen and rendering remained unimplemented.
 
 ## Session 13 evidence
 

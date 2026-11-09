@@ -36,9 +36,10 @@
 | `docs/service-request-contract.md` | Service ABI investigation | Empty-input return validated independently; complete live request contract pending |
 | `docs/project-lifecycle-contract.md` | Native lifecycle research | Marker/listener paths bounded; no complete project CRUD contract |
 | `docs/startup-recovery-investigation.md` | Current startup evidence | Recovered score project opened privately after cache archival; current handshake absent |
-| `native/bridge/CubaseMcpNativeProbe.cpp`, `native/bridge/ProjectHostAbi.h` | Fixed diagnostic DLL | Earlier host request returned an error callback; separate fixed path-class lookup and release returned in the current isolated process |
-| `native/NativeProbeLoader.cs`, `scripts/Invoke-NativeProbe.ps1`, `scripts/Invoke-PathServiceProbe.ps1` | Explicit isolated diagnostic loader | Fixed module, two mutually exclusive entries and build profile only; not an MCP backend |
-| `tests/probe-wrapper-policy.ps1` | Fixed diagnostic entry-result policy | Both wrappers' success, incomplete-entry and error guards checked without launching Cubase |
+| `native/bridge/CubaseMcpNativeProbe.cpp`, `native/bridge/ProjectHostAbi.h` | Fixed diagnostic DLL sources | Earlier host request returned an error callback; fixed path lookup and Unicode setter/field checks returned in the isolated process |
+| `native/NativeProbeLoader.cs`, fixed `scripts/Invoke-*Probe.ps1` wrappers | Explicit isolated diagnostic loader | Two fixed module images and three hardcoded entry choices with one-shot guards; not an MCP backend |
+| `scripts/Build-PathRoundTripProbe.ps1`, `scripts/Invoke-PathRoundTripProbe.ps1` | Fixed temporary path-object diagnostic | Synthetic Unicode setter and bounded object-field comparison succeeded; no project operation |
+| `tests/probe-wrapper-policy.ps1` | Fixed diagnostic entry-result policy | Three wrappers' success, incomplete-entry and error guards checked without launching Cubase |
 | `scripts/Read-MidiScriptErrors.ps1` | Isolated script-console reader | Bounded read-only script-path diagnostics verified for earlier/current test processes |
 | `tests/entry.test.cjs`, `tests/midi-port-clients.ps1`, `tests/probe-wrapper-policy.ps1` | Entry/driver/diagnostic regressions | Top-level script, actual virtual-port client identity and probe exit-policy tests passed |
 | `docs/midi-coverage-3.md`, `docs/midi-insert-viewer.md`, `docs/midi-mixer-bank.md`, `docs/midi-script-state.md` | Controller and live-script evidence | Pagination, guarded mixer/insert controls and observed activation gap documented |
@@ -74,6 +75,10 @@
 | `scripts/project-open-14-inspect.py`, `docs/project-open-14.md` | Host open and drag-path follow-up | Caller identified as drag-data enumeration; queued open return does not prove enqueue or completion |
 | `scripts/project-save-preflight-state-inspect.py`, `docs/project-save-preflight.md` | Save preflight state provenance | Shared startup-state byte identified; meaning, prompt and save outcome remain unresolved |
 | `scripts/midi-activation-14-inspect.py`, `docs/midi-activation-14.md` | MIDI scanner inquiry and rebuild follow-up | Static inquiry registration and receiver provenance identified without asserting name-detection causality |
+| `scripts/project-path-roundtrip-inspect.py` | Fixed path setter and filesystem-root profile | RTTI, vtable slots and leaf/import targets validated before the temporary-object diagnostic |
+| `scripts/project-dispatch-15-inspect.py`, `docs/project-dispatch-15.md` | Project-open application dispatch follow-up | Conditional app receiver and ignored result traced; thread and completion remain unverified |
+| `scripts/project-lifecycle-15-inspect.py`, `docs/project-lifecycle-15.md` | Save pre-open decision follow-up | Second conditional alert and original-path attribute checks identified; no save invoked |
+| `scripts/midi-activation-15-inspect.py`, `docs/midi-activation-15.md` | MIDI scanner receiver follow-up | Current receiver/vtables and empty detail records observed without MIDI transmission |
 
 ## Update Log
 
@@ -94,3 +99,4 @@
 | 2026-11-10 | Added revision 3.5 bank insert viewers and traced save alert and activation provenance; real mapping and project lifecycle remain unverified. |
 | 2026-11-10 | Measured the 3.5 no-write status timeout and current informer snapshot; traced host-open, second-instance, save-preflight and queue-consumer paths without invoking a project operation. |
 | 2026-11-10 | Verified one isolated in-process path-class lookup and release; traced open enqueue, save preflight and MIDI scanner follow-ups without a project action. |
+| 2026-11-10 | Verified a synthetic Unicode path-object setter and field split in the isolated host; checked current scanner receiver and traced open/save decision paths. |

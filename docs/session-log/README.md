@@ -16,3 +16,4 @@
 | [12](session-12.md) | 2026-11-10 | Add guarded bank insert viewers and trace save/activation provenance. |
 | [13](session-13.md) | 2026-11-10 | Measure the current handshake and investigate background project-open and activation paths. |
 | [14](session-14.md) | 2026-11-10 | Verify an isolated path-service lookup and continue project and MIDI activation tracing. |
+| [15](session-15.md) | 2026-11-10 | Verify a temporary Unicode path object and trace project dispatch and scanner receiver. |
