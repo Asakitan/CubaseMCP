@@ -37,7 +37,7 @@ test('observed MCP Save admits its file before one mutation and distinguishes ch
     try {
         await writeFile(projectPath, before);
         await Promise.all([runtime.server.connect(right), client.connect(left)]);
-        assert.equal((await client.listTools()).tools.length, 25);
+        assert.equal((await client.listTools()).tools.length, 30);
         const changed = body(await call(projectPath));
         assert.equal(changed.ok, true);
         assert.equal(changed.data.file.state, 'changed_stable');

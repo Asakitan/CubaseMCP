@@ -239,6 +239,11 @@ export class MidiClient {
         }
     }
 
+    prepareLifecycle(): void {
+        if (this.pending.size || this.saveBusy) throw new BridgeError('MIDI_BUSY', 'Complete pending MIDI requests before changing the owned runtime.');
+        this.close();
+    }
+
     close(): void {
         if (this.state === 'closed' || this.state === 'faulted') return;
         this.state = 'closed';

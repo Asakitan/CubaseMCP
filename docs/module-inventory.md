@@ -3,7 +3,7 @@
 | Source | Runtime target | Status |
 | --- | --- | --- |
 | `src/config.ts` | `dist/src/config.js` | Literal policy parser verified |
-| `src/server.ts` | `dist/src/server.js` | 25 tools; 3.13 bridge gate, prepared fixed Save and caller-path file observation |
+| `src/server.ts` | `dist/src/server.js` | 30 tools; 3.13 MIDI bridge gate and explicit native owned lifecycle |
 | `src/bridge-contract.ts` | `dist/src/bridge-contract.js` | Shared host/revision/active-session gate; operational readiness is explicit |
 | `src/doctor.ts` | `dist/src/doctor.js` | Reports operational readiness separately from handshake availability |
 | `src/midi.ts` | `dist/src/midi.js` | Exact ports, deadlines, fault latch and prepared Save input/release/return; focused tests passed |
@@ -19,7 +19,7 @@
 | `scripts/Start-MidiPorts.ps1` | Two exact-name virtual ports | Running with explicit stop and correlated one-shot client inspection |
 | `native/CubaseDesktop.cs` | Isolated Windows desktop/process lifetime | Shared suspended-process desktop and restricted-Job core for explicit CPR and no-argument launch; synthetic checks and session 24 launch observed |
 | `scripts/Start-CubaseBackground.ps1` | Explicit existing CPR or copied AI test project | Validated path, runtime receipt and no-inherited-handle holder; fresh detached launch observed in session 20 |
-| `scripts/Start-CubaseEmptyBackground.ps1`, `tests/EmptyStartProbe.cs`, `tests/empty-start-job.ps1`, `tests/background-empty-existing-guard.ps1` | Separate no-CPR private launch diagnostic | Existing-instance guard and synthetic Job checks passed; PID 72128 launched with identity-bearing receipt; not an MCP create operation |
+| `scripts/Start-CubaseEmptyBackground.ps1`, `tests/EmptyStartProbe.cs`, `tests/empty-start-job.ps1`, `tests/background-empty-existing-guard.ps1` | Shared no-CPR private launch core | Historical guard/Job checks and PID 72128 evidence retained; the formal lifecycle now uses this launcher before its explicit native project operation |
 | `scripts/Read-FirstProjectState24.ps1`, `scripts/Prepare-FirstProjectOpen24Fixture.ps1`, `scripts/Observe-FirstProjectOpen24.ps1` | Fixed session 24 admission, copied fixture and passive observer | No-project state and Job sampled; 512 observer samples without a recorded desktop violation; polling is non-atomic |
 | `native/FirstProjectJobAudit24.cs`, `native/FirstProjectOpen24Loader.cs`, `native/bridge/CubaseMcpFirstProjectOpen24.cpp`, `scripts/Build-FirstProjectOpen24.ps1`, `scripts/Invoke-FirstProjectOpen24.ps1` | Fixed one-shot diagnostic outside MCP runtime | Built; one fixture submission returned zero and subsequent project root/tree and 3.8 activation were observed; no lifecycle completion claimed |
 | `docs/background-empty-start-24.md`, `docs/empty-start-static-24.md`, `docs/first-project-open-24.md` | Session 24 launch, static-branch and first-project evidence | Diagnostic scope, sampling limitations, mapping activation and individual live MCP observations recorded |
@@ -119,6 +119,9 @@
 | `scripts/Invoke-MinimalSave30.ps1`, `scripts/verify-mcp-save31.cjs`, `docs/project-save-chain-28.md` | Owned lifetime-bound real MCP Save/reopen observation | Profile 32: 146.75, changed CPR and fresh 3.13 reopen readback; no replay |
 | `scripts/Prepare-CommandInput28.ps1`, `scripts/Invoke-CommandInput28.ps1`, `scripts/verify-command-input28.cjs`, `scripts/Invoke-CommandHold29.ps1`, `scripts/verify-command-hold29.cjs` | Historical fixed physical-input experiments | Large-page short and held input attempts did not establish Save; consumed admissions retained |
 | `scripts/Use-WorkspaceTemp.ps1` | Task-child process temporary directory on E | Used by owned launch/diagnostic wrappers; C cleanup manifest retains 12 moved file records |
+| `src/lifecycle.ts`, `scripts/Project-Runtime.ps1` | Formal owned lifecycle coordinator | Real MCP create, save-as, open, status and stop observed; no generic editor/command endpoint |
+| `native/ProjectCreateLoader.cs`, `native/bridge/CubaseProjectCreate.cpp`, `native/bridge/OwnedHostSupport.h`, `scripts/Build-ProjectRuntime.ps1` | Fixed native initializer on the owned event thread | Builds passed; document path binding and native operations observed on a blank CPR; other project contents not certified |
+| `tests/lifecycle.test.cjs`, `docs/background-project-lifecycle.md`, `docs/feature-coverage-29.md` | Lifecycle contracts and eleven-family matrix | Focused routing/admission and live lifecycle observations separated from open editing work |
 
 ## Update Log
 
@@ -153,3 +156,4 @@
 | 2026-11-10 | Prepared a fixed MIDI binding A/B controller, fixture and non-admitting first-open scaffolds; recorded deactivation and one unconfirmed device notification; traced further Hub callback branches. |
 | 2026-11-10 | Restored the mapping in fresh isolated lifetimes, added guarded insert-viewer writes and fixed Save submission, and observed one unconfirmed Save on a disposable fixture. |
 | 2026-11-10 | Session 28: prepared minimal-page Save, real MCP 146.75 edit/file-write/fresh-reopen persistence, 25th Save-observation tool, saved-page startup fix and 12 task C files archived to E. |
+| 2026-11-10 | Session 29: 30-tool formal owned lifecycle, real blank create/path binding/save-as/open, readiness gate, prototype archive and an explicit remaining-feature matrix. |

@@ -31,3 +31,7 @@ The enum now includes `default`, `jump`, `command28`, `hold29`, `minimal30`, `mi
 Reopen profiles require byte equality with their fixed saved snapshot and a bounded saved size, rather than the original 93,085-byte source. The exact generated native filename/length markers are checked before adaptation. No saved-content mutation is submitted by the read-only reopen verifier. The mcp32 save/reopen observation is in `project-save-chain-28.md`; the latest completed reopen is PID 69368 / `134387330697650771` with holder 62876 / `134387330688889536`. Read the canonical receipt before later use.
 
 `Use-WorkspaceTemp.ps1` is loaded before helper compilation and child launch; future task temporary files go to E without changing the user's global settings. Observer errors are preserved, not converted into pass results. In particular the Save writer's observer ended with a desktop-inspection error after 49 samples when its lifetime was ended; the final read-only reopen observer completed all 90 seconds with 356 samples and no sampled violation.
+
+## Later formal lifecycle
+
+The fixed session-27 orchestrator remains diagnostic. Session 29 separately integrated its owned-launch and readiness principles into explicit MCP project create/open/save-as/stop tools, with a parameterized fixed native initializer. See `background-project-lifecycle.md`; this does not make the older fixed fixtures general project APIs.

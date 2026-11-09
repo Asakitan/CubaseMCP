@@ -1,37 +1,35 @@
 # Cubase AI 16 MCP
 
-Version: 0.1.0. **The complete Cubase coverage goal remains incomplete.** The server exposes 25 tools through one background MIDI Remote connection. Current controller revision: **2026-11-10-coverage-3.13**, installed and observed in owned isolated PID 69368. General project creation/open/save-as, track/event editing and parameterized rendering remain open.
+Version: 0.1.0. **Full Cubase coverage is still incomplete.** The built server exposes **30 tools**. The normal MIDI controller is `2026-11-10-coverage-3.13`; fixed native lifecycle operations now support owned background create/open/save-as/stop. They are explicit operations, not a fallback.
 
-## Current increment: session 28
+## Current increment: session 29
 
-- **Real MCP persistence chain passed:** tempo 134 → **146.75**, one fixed Save input, CPR **93,085 → 93,730 bytes**, then a fresh process read **146.75** through MCP with matching saved bytes. This validates one owned fixture and one semantic edit, not arbitrary project persistence or full feature coverage. See [Save evidence](docs/project-save-chain-28.md).
-- Save now uses a dedicated minimal mapping page, prepared session/token/deadline, one Note On, binding observation, one Note Off and return to the primary page. The result contains a **new session**; rediscover objects afterward. A timeout after input remains unknown and is never replayed.
-- Revision 3.13 returns from an unarmed saved internal Save page on startup without Save input. Initial tempo callbacks are retained only for a matching device and mapping.
-- All launches stayed on `winsta0\CubaseAI_MCP` in the restricted owned Job; no foreground input or dialog action was issued. The final reopen observer completed 356 samples without a sampled violation. The writer observer recorded 49 samples before reporting a desktop-inspection error when the lifetime ended; it is not a complete observer success.
-- Current runtime receipt: `artifacts/runtime/cubase-launch.json`; target PID **69368** / creation FILETIME **134387330697650771**; holder **62876** / **134387330688889536**. Stored IDs are historical: verify the receipt before any future process action.
-- Added `cubase_project_save`, the 25th tool: one MIDI Save plus changed/stable byte observation at a caller-confirmed existing CPR path, not path selection or semantic reopen. Its in-memory MCP contract check passed; its wrapper has not been separately live-certified. See [tool contract](docs/project-save-tool.md).
-- C-drive cleanup archived **12 task-owned temporary/crash files / 3,937,635 bytes** to E and removed their C copies. `Use-WorkspaceTemp.ps1` directs new task helper/compile/owned-launch temporary files to `artifacts/scratch-temp`. Unrelated live-application files, installed dependencies and an installer without proven task provenance were preserved. Manifest: `artifacts/c-temp-cleanup-d91e4257c91242b19be1cd9f244676b3/manifest.json`.
+- **Real MCP lifecycle passed:** created a native blank `New.cpr` (**67,595 bytes**), bound the document path, saved as `Version.cpr` (**68,380 bytes**), then replaced the owned process and opened that file through MCP. The new mapping connected and discovery showed only Stereo In/Out. No template was copied. Evidence: `artifacts/ipc/lifecycle30-bound-path-live.json` and [lifecycle contract](docs/background-project-lifecycle.md).
+- Added `cubase_runtime_status`, `cubase_project_create`, `cubase_project_open`, `cubase_project_save_as` and `cubase_runtime_stop`. Replacement/stop require explicit discard confirmation. Other processes are not adopted or terminated.
+- Native calls run on the verified event thread, with exact owned process/holder/Job checks and one-shot admission. The implementation binds the document's path before saving; a file-only prototype result is not treated as the final contract.
+- Startup waits for observed controller activation and subsequent idle before sending one MIDI handshake. An earlier handshake timeout remains recorded, not replayed. All task temporary files and helpers use E-drive scratch.
+- Current owned target: **9348 / 134387351968202198**, holder **59332 / 134387351958862499**, private desktop `winsta0\CubaseAI_MCP`. The managed project is `artifacts/managed-projects/正式生命周期 30/Version.cpr`. Read the actual receipt and managed manifest before later process actions.
+- Six prototype source/scripts were archived to `artifacts/research/session-29-prototype`; old prototype processes ended. Normal 3.13 controller deployment was retained. The previous 12-file / 3,937,635-byte C cleanup remains recorded; no matching new Cubase temporary/crash files were found in the inspected C Temp and Steinberg CrashDumps locations.
 
-## Implementation status
+## Coverage and remaining work
 
-| Area | Status |
+| Family | Current state |
 | --- | --- |
-| MCP schema, revision/session gates, exact MIDI ports and fault latch | Implemented; 25 tools; no alternate runtime or replay |
-| DirectAccess discovery and parameter/edit-lock writes | Individual real-host round trips observed in earlier sessions |
-| Tempo edit and current-project Save/reopen | Real MCP chain observed in session 28, for the named owned CPR |
-| Selected/bank mixer, EQ, sends, plug-in/insert banks and controls | Declaration-backed implementation; not blanket live certification; two earlier control-volume submissions remain unconfirmed |
-| General project creation/open/close and named save-as | Incomplete; fixed first-open helper is diagnostic only |
-| Track creation/deletion/reorder, note/audio event editing | Incomplete |
-| Parameterized audio export/stems/offline render and remaining feature families | Incomplete |
+| Owned background lifecycle | Basic create/open/save-as/status/explicit-discard stop observed through real MCP on a blank CPR; other project formats, overwrite/merge/collect and arbitrary error branches are not certified |
+| Current-project Save/tempo persistence | Earlier separate real MIDI tempo 134→146.75, Save and fresh-reopen content chain passed; not repeated in session 29 |
+| DirectAccess parameter/edit-lock operations | Earlier individual real-host round trips observed |
+| Mixer/transport/plug-in control bindings | Implemented declaration-backed portions; not blanket host certification; earlier two control-volume writes still unconfirmed |
+| Track structure CRUD | Still incomplete |
+| MIDI and audio event CRUD | Still incomplete |
+| Automation nodes/curves/ranges, full routing, plug-in presets/state | Still incomplete |
+| Exports/render and score/chord/arranger/media/video/sync | Still incomplete |
 
-## Validation
+The [eleven-family matrix](docs/feature-coverage-29.md) separates implementation from real-host evidence. Native lifecycle success does not certify those other feature families or all edition capabilities.
 
-3.12 build and seven focused Save/MIDI/MCP checks passed. 3.13 build and three focused saved-page/tempo/command checks passed, followed by the successful real MCP read-only reopen. The final server build and two focused new-tool/session-gate checks also passed (`save-observer-build.log`, `save-observer-focused.log`). No unchanged full suite was repeated; **109/109** is the historical 3.9 result. Receipts report submission, not a universal save-completion callback.
+## Necessary validation
 
-## Next work and preserved uncertainty
+Native and TypeScript builds passed. Only the changed lifecycle/MIDI-admission contracts and new live operations were checked. No unchanged full suite or original Save chain was repeated; **109/109** remains a historical 3.9 result. Details and corrections are in [session 29](docs/session-log/session-29.md); [session 28](docs/session-log/session-28.md) retains the earlier Save evidence.
 
-1. Establish parameterized unattended creation and destination/save-as, without presenting a copied seed as a blank new project or promoting an unverified native entry to production.
-2. Add actual track/event editing, then remaining Cubase feature families; use only the cheapest necessary validation and no subagents.
-3. Keep existing unknown admissions, request records and backups. Earlier session-19/20 opens, session-24/25 control writes, session-26 status/notification and session-27 Save remain unknown/unconfirmed; the later distinct Save success does not resolve them.
+## Next priorities
 
-Historical investigations and exact evidence remain under [session logs](docs/session-log/README.md). Recent history: [27](docs/session-log/session-27.md), [28](docs/session-log/session-28.md); [first-open boundary](docs/first-open-27.md), [coverage audit](docs/midi-coverage-audit.md).
+Implement actual track structure and event editing using validated host contracts, then routing/automation/plugin-state/render families. Preserve all old unknown outcomes, admission records and project files; do not relabel stubs, templates or source-only handlers as complete functionality. Core work stays with the main worker; the user permits GPT-6-luna only for simple tasks. Keep new scratch on E and avoid redundant verification.

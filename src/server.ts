@@ -6,21 +6,24 @@ import { loadConfig, type Configuration } from './config.js';
 import { BridgeError, MidiClient } from './midi.js';
 import { inspectBridge, verifyBridge } from './bridge-contract.js';
 import { saveProjectObserved } from './save-observer.js';
+import { runLifecycle } from './lifecycle.js';
 
 export const constraints = {
     backend: 'midi',
+    backendScope: 'parameter and control transport',
+    projectLifecycleBackend: 'fixed-build native calls in an owned private-desktop process',
     backgroundOnly: true,
     fallback: false,
     automaticRetry: false,
     fullCubaseCoverage: false,
     editionVerification: 'AI feature availability requires a live licensed host; version is checked at handshake.',
     unsupported: [
-        'Arbitrary project create/open/save-as with paths',
+        'Project overwrite, merge, collect/copy and unverified format imports',
         'Arbitrary audio or MIDI event/note creation and editing',
         'Arbitrary track creation, deletion and reordering',
         'Parameterized audio export, stems and offline rendering',
         'Plugin GUI, preset file dialogs and arbitrary menu commands',
-        'Any feature absent from the active Cubase AI license or MIDI Remote API'
+        'Unimplemented features or features absent from the active Cubase AI license'
     ]
 };
 
@@ -42,15 +45,16 @@ function failure(error: unknown): CallToolResult {
 
 export function createServer(config: Configuration = loadConfig()) {
     let client = new MidiClient(config.midi);
+    let lifecycleBusy = false;
     const server = new McpServer({ name: 'cubase-ai16-mcp', version: '0.1.0' }, {
-        instructions: 'Use cubase_status before mutations. Copy the current session, root, object IDs and parameter tags from live discovery. Never infer IDs from a previous session. This server has one background MIDI backend and no fallback. A submitted or timed-out operation is not proof of completion; do not retry it automatically. Read cubase://constraints before planning unsupported work.'
+        instructions: 'Use cubase_runtime_status for owned-process startup and cubase_project_create for a new project. Use cubase_status before MIDI mutations. Copy the current session, root, object IDs and parameter tags from live discovery. Never infer IDs from a previous session. This server has one MIDI control backend and an explicit native project-creation initializer, no fallback. A submitted or timed-out operation is not proof of completion; do not retry it automatically. Read cubase://constraints before planning unsupported work.'
     });
     const session = { session: z.string().min(1).max(200) };
     const root = z.enum(['trackSelection', 'mixConsole', 'transport', 'focusedQuickControls']);
     const reference = { ...session, root, objectId: z.number().int().nonnegative() };
     const pagination = { offset: z.number().int().nonnegative().default(0), limit: z.number().int().min(1).max(64).default(32) };
 
-    async function readStatus(signal?: AbortSignal) {
+    async function readStatus(signal?: AbortSignal): Promise<Record<string, unknown>> {
         const status = await client.request('bridge.status', {}, signal) as Record<string, unknown>;
         const compatibility = inspectBridge(status);
         if (!compatibility.hostVersionMatches) {
@@ -67,6 +71,7 @@ export function createServer(config: Configuration = loadConfig()) {
             annotations: { readOnlyHint: readOnly, destructiveHint: !readOnly, idempotentHint: readOnly, openWorldHint: false }
         }, async (args, context) => {
             try {
+                if (lifecycleBusy) throw new BridgeError('LIFECYCLE_BUSY', 'An owned runtime transition is active.');
                 const requestArgs = args as Record<string, unknown>;
                 if (operation === 'bridge.status') return result(await readStatus(context.mcpReq.signal));
                 verifyBridge(await readStatus(context.mcpReq.signal), requestArgs.session);
@@ -146,11 +151,69 @@ export function createServer(config: Configuration = loadConfig()) {
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
     }, async (args, context) => {
         try {
+            if (lifecycleBusy) throw new BridgeError('LIFECYCLE_BUSY', 'An owned runtime transition is active.');
             verifyBridge(await readStatus(context.mcpReq.signal), args.session);
             return result(await saveProjectObserved(args.projectPath, args.observationTimeoutMs,
                 () => client.executeSave({ session: args.session, key: 'project.save', confirmCurrentSelection: true }, context.mcpReq.signal),
                 context.mcpReq.signal));
         } catch (error) { return failure(error); }
+    });
+
+    server.registerTool('cubase_runtime_status', {
+        description: 'Inspect the owned private-desktop Cubase process, its lifetime and restricted Job, without starting Cubase or requiring a MIDI handshake. A user-owned or mismatched process is not adopted.',
+        inputSchema: z.object({}).strict(), annotations: { readOnlyHint: true, openWorldHint: false }
+    }, async (_args, context) => {
+        try { return result(await runLifecycle('status', {}, context.mcpReq.signal)); }
+        catch (error) { return failure(error); }
+    });
+
+    function projectTool<Shape extends z.ZodRawShape>(name: string, action: 'create' | 'open' | 'save_as', description: string, shape: Shape) {
+        server.registerTool(name, {
+            description, inputSchema: z.object(shape).strict(),
+            annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+        }, async (args, context) => {
+            let ownedTransition = false, outcome: Record<string, unknown> | undefined;
+            try {
+                if (lifecycleBusy) throw new BridgeError('LIFECYCLE_BUSY', 'An owned runtime transition is active.');
+                const requestArgs = args as Record<string, unknown>;
+                if (action === 'save_as') verifyBridge(await readStatus(context.mcpReq.signal), requestArgs.session);
+                client.prepareLifecycle(); lifecycleBusy = true; ownedTransition = true;
+                outcome = await runLifecycle(action, requestArgs, context.mcpReq.signal);
+                client = new MidiClient(config.midi);
+                const host = await readStatus(context.mcpReq.signal);
+                verifyBridge(host, host.session);
+                return result({ lifecycle: outcome, host });
+            } catch (error) {
+                if (outcome) return failure(new BridgeError('PROJECT_HOST_HANDSHAKE_UNKNOWN', 'The native lifecycle returned; the MIDI handshake did not complete.', 'unknown', { lifecycle: outcome, error: String(error) }));
+                return failure(error);
+            } finally {
+                if (ownedTransition) { if (!outcome) client = new MidiClient(config.midi); lifecycleBusy = false; }
+            }
+        });
+    }
+    const replacement = { replaceCurrent: z.boolean().default(false), confirmDiscardChanges: z.boolean().default(false) };
+    projectTool('cubase_project_create', 'create',
+        'Create a real blank project at a new absolute local .cpr path, start an owned private-desktop host, perform its first native store, then return one MIDI handshake. Not a copied template. Replacing an owned host requires both flags true and discards unsaved changes. Unowned hosts are preserved; unknown results are never replayed.',
+        { projectPath: z.string().min(5).max(500), ...replacement });
+    projectTool('cubase_project_open', 'open',
+        'Open an existing local CPR as the first project in a fresh owned private-desktop host, then wait for mapping readiness before one MIDI handshake. Replacing an owned host requires both flags true and discards unsaved changes. The native document path must match. No dialog is operated; unresolved host interactions return unknown.',
+        { projectPath: z.string().min(5).max(500), ...replacement });
+    projectTool('cubase_project_save_as', 'save_as',
+        'Store the managed current project at a new local .cpr path using the native event-thread method. Requires current MIDI session and matching managed document path. Does not overwrite a destination or operate a dialog. The returned new path is checked against the host document; this is not semantic reopen verification.',
+        { ...session, projectPath: z.string().min(5).max(500), confirmSaveAs: z.literal(true) });
+
+    server.registerTool('cubase_runtime_stop', {
+        description: 'End only the lifetime-matched owned private-desktop Cubase and its holder. Explicitly discards unsaved changes; does not save or replay a command. Other Cubase processes are preserved.',
+        inputSchema: z.object({ confirmDiscardChanges: z.literal(true) }).strict(),
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+    }, async (args, context) => {
+        let ownedTransition = false;
+        try {
+            if (lifecycleBusy) throw new BridgeError('LIFECYCLE_BUSY', 'An owned runtime transition is active.');
+            client.prepareLifecycle(); lifecycleBusy = true; ownedTransition = true;
+            return result(await runLifecycle('stop', args, context.mcpReq.signal));
+        } catch (error) { return failure(error); }
+        finally { if (ownedTransition) { client = new MidiClient(config.midi); lifecycleBusy = false; } }
     });
 
     server.registerTool('cubase_ports', {
@@ -167,7 +230,10 @@ export function createServer(config: Configuration = loadConfig()) {
         inputSchema: z.object({}).strict(),
         annotations: { readOnlyHint: true, openWorldHint: false }
     }, async (_args, context) => {
-        try { return result({ constraints, host: await readStatus(context.mcpReq.signal) }); }
+        try {
+            if (lifecycleBusy) throw new BridgeError('LIFECYCLE_BUSY', 'An owned runtime transition is active.');
+            return result({ constraints, host: await readStatus(context.mcpReq.signal) });
+        }
         catch (error) { return failure(error); }
     });
 
@@ -176,6 +242,7 @@ export function createServer(config: Configuration = loadConfig()) {
         inputSchema: z.object({ confirmNoReplay: z.literal(true) }).strict(),
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
     }, async (_args, context) => {
+        if (lifecycleBusy) return failure(new BridgeError('LIFECYCLE_BUSY', 'An owned runtime transition is active.'));
         client.close();
         client = new MidiClient(config.midi);
         try { return result(await readStatus(context.mcpReq.signal)); }

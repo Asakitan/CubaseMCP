@@ -95,6 +95,16 @@ async function withNative(driver, action) {
     finally { Module._load = original; }
 }
 
+test('lifecycle preparation rejects pending requests and closes only after completion', async () => {
+    const { state, driver } = native(), client = new MidiClient(options, driver);
+    const pending = client.request('read');
+    assert.throws(() => client.prepareLifecycle(), { code: 'MIDI_BUSY', execution: 'not_started' });
+    assert.equal(state.inputs[0].closes, 0);
+    reply(state, 0);
+    await pending;
+    client.prepareLifecycle(); released(state);
+});
+
 test('Save uses one validated input and releases only after a binding observation', async () => {
     const { state, driver } = native(), client = new MidiClient(options, driver);
     const operation = client.executeSave({ session: 'save-session', key: 'project.save', confirmCurrentSelection: true });

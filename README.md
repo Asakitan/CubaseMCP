@@ -4,11 +4,11 @@ Windows 本地 MCP，使用单一 MIDI Remote 后台通道控制 Cubase 16。参
 
 ## 固定约束
 
-- MCP 运行时不启动、激活或切换 Cubase 窗口，不发送键盘鼠标输入，不操作菜单或对话框。独立的诊断启动器可以在隔离桌面打开测试副本，不接入 MCP 工具。
-- 只有 `midi` 后端；无 mock、UI、其他适配器或协议 fallback。
+- 正式生命周期工具可在隔离桌面启动和管理自有 Cubase 实例；不激活或切换到用户前台，不发送键盘鼠标输入，不操作菜单或对话框。非自有实例不会被接管或结束。
+- 参数与控制走单一 `midi` 通道；创建、打开、另存为走明确的原生生命周期入口，不按失败结果切换通道，无 mock、UI 或协议 fallback。
 - 指定端口不存在、对象失效、API 缺失、命令不可执行时直接返回错误。
 - 超时或取消后的修改可能已被 Cubase 接收，结果记为 `unknown`；不重试、不重放。重新连接必须显式调用工具。
-- 当前工程已通过真实 MCP 完成一次速度编辑、保存落盘与全新进程重开后的内容读回；参数化工程创建、另存为、轨道和事件编辑、参数化导出仍在推进，尚未达到完整功能覆盖。
+- 已实测当前工程的速度保存/重开，以及正式 MCP 的空白工程创建、路径绑定、另存为和打开；轨道、事件、自动化、完整路由及导出等仍未完成，尚未达到完整功能覆盖。
 
 ## 安装和启动
 
@@ -22,7 +22,8 @@ CubaseAI MCP From Cubase
 ```powershell
 npm ci
 npm run build
-npm test
+npm run build:native
+# 仅执行本次改动所需的定向验证
 npm run setup:midi
 npm run start:ports
 npm run install:remote
@@ -31,9 +32,9 @@ npm run doctor -- --live
 
 `setup:midi` 需要管理员权限，只通过 WinGet 安装官方 loopMIDI 包；已安装时不重复安装。`start:ports` 使用已安装的 virtualMIDI 库，在无窗口进程中提供两个回环端口。没有注册开机或登录自启动，结束进程或重新登录后需重新运行。`stop:ports` 可明确停止端口宿主。
 
-`install:remote` 只复制四个 MIDI Remote 文件，默认不覆盖不同内容。Cubase 需要在正常使用时加载该驱动。不要把这两个控制端口加入 MIDI 轨道的输入或 MIDI Thru 回路。MCP 服务本身不会安装驱动或启动其他应用。
+`install:remote` 只复制四个 MIDI Remote 文件，默认不覆盖不同内容。Cubase 需要在正常使用时加载该驱动。不要把这两个控制端口加入 MIDI 轨道的输入或 MIDI Thru 回路。MCP 服务不自动安装驱动；显式生命周期请求会在私有桌面启动自有 Cubase 和必要的端口宿主。
 
-本机已经完成以上安装。诊断用 `npm run start:cubase-background` 在独立 Windows 桌面打开测试副本；目标进程挂起时先加入禁止桌面创建和切换的 Windows 作业，再核对输入桌面后恢复运行。另一独立诊断启动器支持无 CPR 参数启动，并与原启动器共享作业和桌面核心。它们不是不依赖 GUI 的 Cubase 引擎，也不是 MCP 工程创建接口。后台启动返回的 JSON 包含宿主 PID 和独立启动记录、错误日志路径，长时间运行的宿主不继承调用者的输出管道；`starting` 本身不是启动成功证明。输入桌面和前台句柄是采样值，并非连续监控。本次实验副本已在私有桌面观察到工程窗口；完整的自动化生命周期仍是未完成目标。
+本机已经完成以上安装。诊断用 `npm run start:cubase-background` 在独立 Windows 桌面打开测试副本；目标进程挂起时先加入禁止桌面创建和切换的 Windows 作业，再核对输入桌面后恢复运行。另一独立诊断启动器支持无 CPR 参数启动，并与原启动器共享作业和桌面核心。它们不是不依赖 GUI 的 Cubase 引擎，也不是 MCP 工程创建接口。后台启动返回的 JSON 包含宿主 PID 和独立启动记录、错误日志路径，长时间运行的宿主不继承调用者的输出管道；`starting` 本身不是启动成功证明。输入桌面和前台句柄是采样值，并非连续监控。这些旧启动脚本仍是诊断入口；正式生命周期工具已另行接入创建、打开、另存为和关闭。
 
 VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `cubase-ai16-headless`。其他客户端的 stdio 启动命令为 `node E:/VC/CubaseMCP/dist/src/server.js`。标准输出只用于 MCP 协议。
 
@@ -52,9 +53,9 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 
 当前工程保存通过 `cubase_command_execute` 提交 `key: "project.save"`、当前 `session` 和 `confirmCurrentSelection: true`。3.13 使用独立的最小 Save 映射页，只发送一次 MIDI 按下，观察到绑定后释放并返回主映射；后续请求使用回执中的**新 `session`**，重新发现对象。目标路径仍由当前工程决定，没有带路径的另存为或通用完成回调；超时后的未确认结果不重发。实测链路与边界见 [保存与重开](docs/project-save-chain-28.md)。
 
-`cubase_project_save` 把单次 MIDI 保存与文件观察封装为第 25 个工具：传入已确认的当前 CPR 绝对路径及 `confirmCurrentProjectPath: true`，返回 `file.state`。`changed_stable` 表示观察到内容变化并稳定，`change_not_observed` 表示未确认变化；路径来自调用方声明，工具不选择目标、不另存为，也不把文件变化冒充重开语义验收。该新封装通过定向 MCP 测试，实际宿主验收记录来自前述底层保存链路；详见 [工具契约](docs/project-save-tool.md)。
+`cubase_project_save` 把单次 MIDI 保存与文件观察封装为第 25 个工具（后续生命周期扩展后总计 30 个）：传入已确认的当前 CPR 绝对路径及 `confirmCurrentProjectPath: true`，返回 `file.state`。`changed_stable` 表示观察到内容变化并稳定，`change_not_observed` 表示未确认变化；路径来自调用方声明，工具不选择目标、不另存为，也不把文件变化冒充重开语义验收。该新封装通过定向 MCP 测试，实际宿主验收记录来自前述底层保存链路；详见 [工具契约](docs/project-save-tool.md)。
 
-共 25 个 MCP 工具。单参数及单控制项查询、参数编辑锁、所选轨道身份和前后导航、混音通道位置、速度和时间显示反馈，以及宿主版本和功能上限查询均有明确会话约束。`cubase_parameter_edit_lock_set` 需要已观察的参数和匹配的 `expectedLocked`，回执表示已提交；使用 `cubase_parameter_get` 读取后续状态。已选轨控制包括四段 EQ、前级滤波、发送、乐器槽、五类通道条效果及其参数页、自动化和只读电平表；发送槽数量按宿主返回值确定，可用性以实际返回为准。`cubase_control_set` 可同时传入 `expectedTrackUniqueId` 和 `expectedTrackRuntimeId` 检查选中通道；`cubase_track_navigate` 可传入 `expectedRuntimeId`，两个运行时 ID 均来自 `cubase_selected_track`。这些检查不是与宿主状态原子绑定的事务。插件替换要求 `confirmReplacement:true`，当前选择命令要求 `confirmCurrentSelection:true`。另有 Control Room 及固定混音器银行操作；声明存在不等于 AI 版本实际开放了相应功能。菜单执行仅限固定清单。
+共 30 个 MCP 工具。单参数及单控制项查询、参数编辑锁、所选轨道身份和前后导航、混音通道位置、速度和时间显示反馈，以及宿主版本和功能上限查询均有明确会话约束。`cubase_parameter_edit_lock_set` 需要已观察的参数和匹配的 `expectedLocked`，回执表示已提交；使用 `cubase_parameter_get` 读取后续状态。已选轨控制包括四段 EQ、前级滤波、发送、乐器槽、五类通道条效果及其参数页、自动化和只读电平表；发送槽数量按宿主返回值确定，可用性以实际返回为准。`cubase_control_set` 可同时传入 `expectedTrackUniqueId` 和 `expectedTrackRuntimeId` 检查选中通道；`cubase_track_navigate` 可传入 `expectedRuntimeId`，两个运行时 ID 均来自 `cubase_selected_track`。这些检查不是与宿主状态原子绑定的事务。插件替换要求 `confirmReplacement:true`，当前选择命令要求 `confirmCurrentSelection:true`。另有 Control Room 及固定混音器银行操作；声明存在不等于 AI 版本实际开放了相应功能。菜单执行仅限固定清单。
 
 `cubase_status` 返回紧凑握手，不再内嵌完整对象和控制表。`cubase_controls_list` 的控制和分组分别分页，按 `nextOffset`、`nextGroupOffset` 获取全部项目；`cubase_transport_get` 提供速度与定位器的可用性和实际反馈。长身份标识原样保留，描述性元数据有长度上限。
 
@@ -82,7 +83,7 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 
 较早的 `artifacts/live-smoke/verification.json` 记录了真实 Cubase AI 16.0.5 的发现、参数、反馈和音量写入恢复；它不证明本轮新增控制项、工程存储或完整功能覆盖。新版 `verify:live` 脚本要求当前控制器，旧记录与本轮实机验收分别记录。详细状态见 [STATUS](STATUS.md)。
 
-**当前状态（第 28 轮）**：真实 MCP 的一条速度编辑→保存落盘→全新进程重开内容保留链路已完成；这不等于全部工程或功能都已验收。参数化创建、另存为、轨道和事件编辑、导出仍未完成，旧的两次控制绑定写入和第 27 轮保存结果仍未确认。详见 [保存链路](docs/project-save-chain-28.md) 与 [首开边界](docs/first-open-27.md)。
+**当前状态（第 29 轮）**：正式 MCP 已完成原生空白创建（67,595 字节）、另存为（68,380 字节）、更换后台实例后打开同一文件并连接映射；没有复制模板。旧的 146.75 保存链路没有重复测试。轨道和 MIDI/音频事件编辑、完整自动化、路由、插件状态和导出仍未完成，详见 [生命周期](docs/background-project-lifecycle.md) 与 [覆盖矩阵](docs/feature-coverage-29.md)。
 
 ## 原生项目接口调查
 
@@ -110,3 +111,9 @@ powershell.exe -NoProfile -File scripts/Inspect-ProjectFactory.ps1 -ProbeProject
 ## 会话临时文件
 
 本轮将已确认属于本任务的 12 个 C 盘会话临时及崩溃文件（3,937,635 字节）归档到 E 盘并移除 C 盘副本；保留其他正在运行软件的临时文件和已安装依赖。后续任务辅助进程、编译和自有 Cubase 启动的 `TEMP`/`TMP` 指向 `E:\VC\CubaseMCP\artifacts\scratch-temp`，只影响这些进程，不更改系统或用户全局设置。
+
+## 正式后台生命周期
+
+`cubase_runtime_status` 查询自有实例；`cubase_project_create` 创建真实空白 CPR；`cubase_project_open` 打开已有 CPR；`cubase_project_save_as` 使用当前会话另存为新路径；`cubase_runtime_stop` 关闭自有实例。替换实例需要同时传 `replaceCurrent: true` 与 `confirmDiscardChanges: true`，关闭需要明确丢弃确认；默认保留现有实例。另存为不覆盖已有文件，要求已登记的当前工程路径匹配。
+
+原生初始化器固定对应本机 16.0.5.174，文件路径长度上限 500 字符。调用会检查进程寿命、父进程、隔离作业、事件线程及文档路径；创建/打开后先观察映射激活，再发送一次 MIDI 握手。失败不会重发；原生结果和文件会保留。源代码和实机证据见 [详细契约](docs/background-project-lifecycle.md)。这不是所有 Cubase 功能已完成的声明。

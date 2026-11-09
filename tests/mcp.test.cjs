@@ -43,6 +43,7 @@ test('all session operations reject an obsolete bridge before host dispatch', as
         ['cubase_commands_list', { session: 'old' }],
         ['cubase_command_execute', { session: 'old', key: 'edit.undo', confirmCurrentSelection: true }],
         ['cubase_project_save', { session: 'old', projectPath: 'E:\\VC\\CubaseMCP\\artifacts\\unopened.cpr', confirmCurrentProjectPath: true }],
+        ['cubase_project_save_as', { session: 'old', projectPath: 'E:\\VC\\CubaseMCP\\artifacts\\new-save-as.cpr', confirmSaveAs: true }],
         ['cubase_selected_track', { session: 'old' }],
         ['cubase_track_navigate', { session: 'old', direction: 'next', expectedUniqueId: 'track' }]
     ];
@@ -175,7 +176,7 @@ test('real stdio server exposes tools and rejects missing MIDI without fallback'
     try {
         await client.connect(transport);
         const listed = await client.listTools();
-        assert.equal(listed.tools.length, 25);
+        assert.equal(listed.tools.length, 30);
         assert.ok(listed.tools.some(tool => tool.name === 'cubase_parameter_set'));
         assert.ok(listed.tools.some(tool => tool.name === 'cubase_parameter_get'));
         assert.ok(listed.tools.some(tool => tool.name === 'cubase_parameter_edit_lock_set'));

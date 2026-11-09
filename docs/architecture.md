@@ -1,7 +1,7 @@
 # Architecture
 
 ```text
-MCP client -> stdio SDK -> strict tool schema -> one MidiClient
+MCP client -> stdio SDK -> strict tool schema -> one MidiClient (parameter/control operations)
   -> exact named Windows MIDI ports -> no-window virtualMIDI loopback host
   -> bounded SysEx frames
   -> Cubase ES5 MIDI Remote driver -> controller -> documented host API
@@ -9,9 +9,13 @@ MCP client -> stdio SDK -> strict tool schema -> one MidiClient
 
 The return path carries correlated replies. There is no adapter router, foreground process controller, network service, synthetic state provider or command replay queue in the Node server.
 
+The explicit project lifecycle uses a separate fixed native initializer on the owned event thread, not a retry/fallback for MIDI controls. See `docs/background-project-lifecycle.md`.
+
 ## Boundaries
 
-- `src/server.ts`: named tools and explicit error results; no generic eval or arbitrary menu call.
+- `src/server.ts`: 30 named tools and explicit error results; no generic eval or arbitrary menu call.
+- `src/lifecycle.ts`, `scripts/Project-Runtime.ps1`: serialized owned lifecycle, JSON argument file on E, process/parent/Job checks and a single post-readiness MIDI handshake.
+- `native/ProjectCreateLoader.cs`, `native/bridge/CubaseProjectCreate.cpp`, `native/bridge/OwnedHostSupport.h`: fixed-build event-thread create/open/bind-path/save-as operations; no instruction or licensing patches.
 - `src/config.ts`: literal background-only policy and exact port names.
 - `src/bridge-contract.ts`: one required host version, bridge revision and active-session contract shared by server and doctor.
 - `src/midi.ts`: native MIDI ownership, request IDs, timeout/cancellation uncertainty and fault latching.
@@ -49,11 +53,13 @@ Transport tempo and locator calls use `mTransport.mTimeDisplay.setTempoBPM` and 
 
 Cubase owns the project, audio thread and plugin lifecycle. This server does not emulate application features absent from the public API. A legacy core chain was verified on AI16.0.5 in an earlier process; session 24 subsequently verified the current revision's mapping, reads, and individual DirectAccess value and edit-lock round trips. A separate selected-track volume binding write remained unverified.
 
-## Initialization Boundary
+## Historical Initialization Boundary
 
-The user explicitly approved one-time initialization in the isolated desktop. Those temporary controls live only under ignored `artifacts/setup`, are not callable through MCP, and are not a runtime fallback. Normal MCP requests remain MIDI-only. No logon autostart was added. The runtime state files identify the currently owned processes; an older exit record is relevant only when its process ID matches the current launch record.
+The user explicitly approved one-time initialization in the isolated desktop. Those temporary controls live only under ignored `artifacts/setup`, are not callable through MCP, and are not a runtime fallback. That older interactive initialization is not exposed. Current parameter/control requests remain MIDI-only; current explicit project lifecycle tools use the validated native initializer. No logon autostart was added. The runtime state files identify the currently owned processes; an older exit record is relevant only when its process ID matches the current launch record.
 
-## Native Interface Research
+## Historical Native Interface Research
+
+The following entries describe the scope of earlier research helpers. They are not the current production lifecycle contract, which is defined above and in `background-project-lifecycle.md`; no earlier unverified result is promoted by the later lifecycle acceptance.
 
 `scripts/inspect-cubase-ipc.cjs` is a separate read-only diagnostic, not an MCP backend. It collects endpoint/module metadata and parses selected installed PE files without loading them into Cubase or invoking their exports. It records candidate project-plugin and SKI dispatcher interfaces; no native editing ABI has been recovered or enabled. See `docs/native-interface-investigation.md` for evidence and the next discriminating checks. A future native path must be explicitly designed and verified; this research does not introduce automatic fallback.
 
@@ -104,3 +110,9 @@ The single MIDI MCP runtime in revision 3.10 adds `project.save` as a fixed comm
 Revision 3.13 replaces the ineffective Save pulse with the fixed prepared MIDI workflow described above. A distinct real MCP tempo edit and Save changed the owned CPR, and fresh-process MCP readback observed 146.75 with matching saved bytes. This is one verified semantic persistence chain, not a general project creation or save-as API. The fixed first-open and minimal diagnostic helpers remain outside the production MCP surface; there is no alternate runtime route.
 
 `scripts/Use-WorkspaceTemp.ps1` sets process-scoped TEMP/TMP to the workspace's E-drive `artifacts/scratch-temp` for task helper, compiler and owned-launch descendants. It rejects reparse points and does not change global user/system settings. Twelve specifically identified C temporary diagnostics/setup logs and crash records were moved to an E-drive evidence archive; unrelated live-application files and active dependencies were preserved. No broad C-drive deletion is part of the server.
+
+## Session 29 formal lifecycle
+
+The former research-only lifecycle boundary has been narrowed into explicit production operations: owned blank creation, existing CPR open, named save-as and explicit-discard shutdown. New/open first launch an empty isolated host; save-as requires the managed document path and active MIDI session. `PArrangement` path binding precedes the current-path native save, matching the observed dispatcher. Postconditions check the current root/document and path, then the emitted file; no source template is copied.
+
+A real MCP blank/create/save-as/open sequence passed on new files. Mapping readiness is observed through the installed controller's activation/idle records before the first MIDI request. Old unknown requests are preserved. Core editing still uses the one MIDI transport; no native fallback for failed parameter/control bindings exists. The remaining feature families are tracked separately rather than reported as available.
