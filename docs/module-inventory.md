@@ -46,6 +46,16 @@
 | `docs/midi-detection-predicate.md`, `scripts/midi-detection-predicate.py` | Fixed detector-predicate investigation | Script-path lookup and rejection-set machinery identified; activation trigger unresolved |
 | `docs/midi-activation-dispatch.md`, `docs/midi-detection-ports.md`, `scripts/midi-detection-ports.py` | MIDI activation investigation | Prepared-command and detector paths bounded; execution and port-pairing trigger remain unverified |
 | `docs/project-lifecycle-followup.md` | Project lifecycle follow-up | Native save stream and error-path research; no project CRUD execution claimed |
+| `scripts/Read-MidiHostEnvironment.ps1`, `docs/midi-host-environment.md` | Read-only isolated MIDI Remote model diagnostic | Current bounded snapshot found empty input/output collections; no activation claim |
+| `scripts/Read-MidiPortInformer.ps1`, `docs/midi-host-port-adapter.md`, `docs/midi-informer-tree.md` | Read-only isolated informer and registry diagnostic | Adapter registration, empty informer trees and target-named MME registry sockets observed; propagation cause unresolved |
+| `scripts/Read-MidiScannerState.ps1`, `docs/midi-informer-source.md`, `docs/midi-scanner-detail.md` | Read-only MIDI scanner investigation | Two target-named records had empty detail ranges; detail semantics and event history unresolved |
+| `docs/midi-detection-correlation.md`, `docs/midi-project-gate.md`, `docs/midi-project-notifications.md`, `docs/midi-project-tree-meaning.md`, `scripts/midi-detection-correlation.py`, `scripts/midi-project-tree-meaning.py` | MIDI Remote project and scanner gate research | Distinct tree paths, project-notification insertion and a root-selection sender identified; live event ordering unresolved |
+| `docs/midi-detection-scheduler.md`, `docs/midi-host-port-producer.md` | MIDI Remote model synchronization research | Detection scheduler and producer branches traced; event source and execution remain unverified |
+| `scripts/dawproject-filter-inspect.py`, `docs/dawproject-host-filter.md` | Installed DAWproject filter investigation | Loaded in the isolated host; independent metadata query and static import chain do not prove a project operation |
+| `scripts/dawproject-package-client-inspect.py`, `docs/dawproject-package-client.md` | DAWproject package and host context research | Package preparation can create directories; ownership and concrete `MProject` IID match remain static evidence |
+| `scripts/Read-DawprojectHostContext.ps1`, `scripts/dawproject-host-context-inspect.py`, `docs/dawproject-host-context.md` | Read-only host context and listener investigation | MProject/MRoot vtables and informer listener membership observed; active-project and import semantics unverified |
+| `scripts/Read-DawprojectRootField.ps1`, `docs/dawproject-active-project.md` | Read-only MRoot field investigation | A tempo-track event and its interface were observed; no arrangement or lifecycle operation claimed |
+| `docs/project-save-target.md` | Native save destination and cleanup investigation | Conditional file deletion and creation paths identified; exact targets and recovery semantics unresolved |
 
 ## Update Log
 
@@ -60,3 +70,4 @@
 | 2026-11-10 | Validated the independent empty-input service branch and live registry membership; added explicit-path isolated launch and fixed device diagnostic. Restarted the owned test host with approval; startup and MIDI activation remain incomplete. |
 | 2026-11-10 | Recovered the score project, repaired the script entry, added bounded paging, insert-viewer and mixer-bank fixtures, and port-client diagnostics; 70 tests passed, while current mapping activation and native project CRUD remain open. |
 | 2026-11-10 | Deployed coverage 3.3 to the private host and traced activation and project-save internals; a real status request still timed out before any write. |
+| 2026-11-10 | Observed empty MIDI Remote host-port collections despite open OS ports and traced an installed DAWproject filter; project and activation contracts remain unverified. |

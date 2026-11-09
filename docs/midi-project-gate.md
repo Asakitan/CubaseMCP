@@ -1,0 +1,17 @@
+# MIDI Remote project-notification gate
+
+Date: 2026-11-10. Static analysis of the installed Cubase 16.0.5 Windows x64 executable, PE timestamp `0x6adf121b`, combined with separately identified read-only snapshots. RVAs and object layouts are build-specific, not a supported ABI. No internal method was called and no process was modified.
+
+## Fourth-tree insertion
+
+`MidiRemoteSystemInformer` has an RTTI-identified `IProjectNotification` secondary subobject at complete-object `+0x20`. Its secondary vtable at `0x4452900` has slot `+0x18` at `0x25b17f0`. When given a non-null `RDX`, that entry searches the tree at secondary `this+0x68`, i.e. informer complete-object `+0x88`, by the pointer value. For a missing key it allocates a `0x28`-byte node, stores the supplied pointer at node `+0x20`, and calls `0x15c77b0` with the tree. That insertion helper begins by incrementing the tree's count at `+0x08`, i.e. informer `+0x90`. The method also schedules further work under other conditions. This establishes one concrete writer for the fourth tree; the nominal type and lifecycle of the supplied pointer and the event meaning are not established merely by the interface name.
+
+## Conditional project-listener registration
+
+Function `0x25ae5e0` obtains the informer singleton, calls `0x165e5b0`, and, only when its result is non-null, invokes that result's virtual slot `+0x30` with informer `+0x20`. Function `0x165e5b0` obtains a component registry and requests the raw IID at executable RVA `0x54e05f0`: `13 28 7c 3d bf 8a ae 4a a2 3a 11 bf 37 21 4c 36`. Independently traced `MProject` implements that IID via its secondary interface and its vtable `0x447d448` slot `+0x30` targets `0x180ec60`, which dispatches to a container at complete-object `+0xc8` with the supplied pointer. See `docs/dawproject-package-client.md` for the IID match. The non-null branch is a concrete registration-shaped path, but the static match does not prove that a particular service lookup returned `MProject`, that this registration ran, or that any project notification was delivered.
+
+The bounded PID 3720 informer snapshot in `artifacts/ipc/midi-port-informer-gates-3720.json` observed the fourth-tree count as zero. A separate, later type-validated snapshot observed a live `MProject` object and found informer `+0x20` among 29 entries in its `TLinkedList<IProjectNotification*>`, with stable repeated headers and nodes (`artifacts/ipc/dawproject-host-context-main-3720.json`). This establishes membership in that sampled container, not the path or timing by which it was added, event delivery, the meaning of tree keys, or active-project identity. The zero tree remains consistent with no current entries, notification timing or other conditions; the snapshots do not select a cause.
+
+## Reproduction and next evidence
+
+The coordinator used `pefile` and `capstone` to inspect the fixed executable ranges `0x25ae5e0`, `0x165e5b0`, `0x25b17f0`, `0x15c77b0`, and `0x180ec60`, plus the vtable at `0x447d448`; the leaf `0x15c77b0` has no separate `.pdata` function range, so decode must start at that exact address. The bounded listener-container read is reproducible with `scripts/Read-DawprojectHostContext.ps1`; it does not invoke virtual methods. One project-root sender is described in `docs/midi-project-notifications.md`; further work must establish its actual startup ordering, other producers and lifecycle conditions. Do not add an observer or call the notification based only on these offsets.

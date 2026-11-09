@@ -10,3 +10,4 @@
 | [06](session-06.md) | 2026-11-10 | Recover native project request contracts, expand declared controls and enforce a uniform active-bridge gate. |
 | [07](session-07.md) | 2026-11-10 | Recover native project context and test automatic driver activation without UI. |
 | [08](session-08.md) | 2026-11-10 | Repair isolated startup, deploy coverage 3.3 and investigate native project and MIDI activation paths. |
+| [09](session-09.md) | 2026-11-10 | Observe MIDI Remote host-port model and trace the loaded DAWproject filter. |

@@ -1,0 +1,29 @@
+# MIDI Remote host-port adapter and informer
+
+Date: 2026-11-10. This build-specific investigation uses on-disk disassembly of Cubase 16.0.5 Windows x64 and one bounded read-only private-process snapshot. It did not call internal functions, modify a process or configuration, inject MIDI, switch desktops or use UI.
+
+## Static adapter path
+
+The `SystemRoot` load path `0x264b4e0` obtains the `DomainModel` object and tests its `+0x50` host-environment reference. If present and root `+0xc0` is null, it calls `0x25e0480`, which allocates an object and calls constructor `0x25e9300`; that constructor installs `SystemHostEnvironment` primary vtable `0x4454a30` and secondary vtable `0x4454a40` at object offset `+0xd0`. The load path calls `0x25e3fd0` with the constructed object and model host environment, then stores the object reference at root `+0xc0`. If a preexisting root `+0xc0` is present, the code takes a separate registration-like path. These are code observations, not evidence of exactly when or how often loading occurred.
+
+At `0x25e3fff–0x25e4011`, initialization calls `0x25af120`, obtains an interface at returned singleton object `+0x30` and passes adapter `+0xd0` to its slot 0. The singleton is MSVC-RTTI `MidiRemoteSystemInformer`; its primary vtable is `0x4452800`, its `+0x30` secondary vtable `0x4452970`, and singleton storage is at executable RVA `0x5909af0`. Secondary slot 0 is `0x25aecd0`. This method searches the vector at complete informer `+0x38/+0x40/+0x48`, appends the supplied pointer if not already present, and traverses a tree whose head pointer is at complete informer `+0x58` and count-shaped field at `+0x60`. For each tree node it calls `0x29e2a80`, then, when that returns an object, invokes the newly registered listener's slot 0 with a related pointer. This is registration plus replay-like behavior; tree completeness and ownership are not established.
+
+The adapter's secondary slot 0 is `0x2635d80`. It first schedules a detection update via `0x2623970`, then performs an interface query on the supplied object, checks a `PPort` type condition, builds/checks a port identifier and branches. Input branch calls `0x313d390` at `0x2635fba`; output branch calls `0x313d770` at `0x26365bf`. Those functions populate the `HostEnvironment` input and output vectors, respectively, as traced in `docs/midi-host-environment.md`. The invocation's event source, the full `PPort` ownership contract, and why a given host port enters or fails the informer tree remain unknown.
+
+`0x29b0cd0` accepts two nonempty strings plus a boolean and constructs `I|<first>|<second>` when true or `O|<first>|<second>` when false. `0x29b05f0` checks the first character is `I` or `O` and the second is `|`, then returns true only for `I`. This independently corroborates the input/output branch interpretation and matches the form of identifiers stored in the inspected `Port Setup.xml`; it does not prove the names or direction of a live event, nor that a valid identifier implies detector activation.
+
+## Read-only snapshot
+
+At `2026-11-09T17:11:20.7366089Z`, `scripts/Read-MidiPortInformer.ps1 -TargetProcessId 3720` reported root adapter `0xab16d880` and initialized informer `0x79819380`, with all specified root/adapter/informer vtables matching the build. The observer vector contained four entries and included `adapter+0xd0`. Its tree head was non-null `0x5bf2f700`, with count-shaped field zero. Root, adapter, informer, singleton pointer and observer elements were stable across bounded rereads; process remained alive. Evidence: `artifacts/ipc/midi-port-informer-3720.json`, transcribed from the exact diagnostic output.
+
+The diagnostic verified PID against private launch metadata and process start time, exact executable/version and image base, and 15 target-owned private-desktop windows. It bounded the observer vector at 128 entries and tree count at 4096, inspected no tree nodes and performed no function calls inside Cubase. Empty tree at this instant is a concrete upstream clue alongside the previously observed empty MIDI Remote host-environment collections; **tree semantics have not been fully recovered**. It does not prove that the OS has no MIDI ports, that no callback has ever occurred, or that detection will not occur later. Snapshot consistency checks reduce but do not eliminate races.
+
+The coordinator independently reran the diagnostic at `17:12:44Z`; its unmodified JSON is `artifacts/ipc/midi-port-informer-main-3720.json`. The same adapter remained present in a four-entry observer vector, the tree count remained zero and repeated headers agreed. A separate invalid-PID invocation returned `status=error` and process exit code 1 before any process read.
+
+## Reproduction and remaining question
+
+`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Read-MidiPortInformer.ps1 -TargetProcessId PID` emits one JSON snapshot or explicit error and a nonzero exit. The helper uses only read/query process access and private-desktop window enumeration, never activates the desktop. A later PID requires fresh launch, image, start-time, vtable and field checks; do not reuse recorded addresses.
+
+The helper also snapshots the fixed `+0x88/+0x90` Idle-gate fields. After exact pointer and vtable checks it reads the bounded `PPortRegistry` array and, only for the two observed MME socket classes, the name field; it never dereferences the other global pointer. Their static relationship and point-in-time evidence are documented in `docs/midi-informer-tree.md`.
+
+The next static step is to identify what inserts/removes the informer's `+0x58` tree entries, when that producer is registered, and whether it filters or depends on another model/session. The evidence does not yet support altering a preference, forcing a callback, or claiming that device creation is repaired.

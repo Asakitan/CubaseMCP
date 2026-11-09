@@ -70,9 +70,11 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 
 控制器 `2026-11-10-coverage-3.3` 已安装并读回核对，私有 Cubase 的脚本日志证实其已构造；新增身份保护的混音器银行通道及插入效果查看器尚未通过实机控制验证。之前入口第 7 行的 `module` 错误已修复并有回归测试；最新实例尚未出现设备或映射激活记录，真实状态请求仍超时，测试在写入前结束。端口打开并不等于 MCP 握手成功。
 
+进一步只读快照发现，当前实例的 MIDI Remote 内部输入与输出端口集合当时均为空；它与 Windows 端口已打开属于不同层面的观察，具体同步原因仍待确认。已加载的 DAWproject 组件也在调查中，尚未建立后台工程导入或存储契约。
+
 较早的 `artifacts/live-smoke/verification.json` 记录了真实 Cubase AI 16.0.5 的发现、参数、反馈和音量写入恢复；它不证明本轮新增控制项、工程存储或完整功能覆盖。新版 `verify:live` 脚本要求当前控制器，旧记录与本轮实机验收分别记录。详细状态见 [STATUS](STATUS.md)。
 
-**当前状态（第 08 轮）**：专用隔离实例已打开单独的 `MCP Device Test 20261110.cpr` 实验副本，原工程和自动备份均已保留，前台未切换；当前仍没有已验证的 MIDI 握手。创建、存储、编辑工程和完整功能验收仍在进行。详见 [启动恢复记录](docs/startup-recovery-investigation.md) 与 [脚本状态调查](docs/midi-script-state.md)。
+**当前状态（第 09 轮）**：专用隔离实例已打开单独的 `MCP Device Test 20261110.cpr` 实验副本，原工程和自动备份均已保留，前台未切换；当前仍没有已验证的 MIDI 握手。创建、存储、编辑工程和完整功能验收仍在进行。详见 [启动恢复记录](docs/startup-recovery-investigation.md) 与 [端口模型调查](docs/midi-host-environment.md)。
 
 ## 原生项目接口调查
 
