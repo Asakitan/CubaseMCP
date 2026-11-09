@@ -79,6 +79,10 @@
 | `scripts/project-dispatch-15-inspect.py`, `docs/project-dispatch-15.md` | Project-open application dispatch follow-up | Conditional app receiver and ignored result traced; thread and completion remain unverified |
 | `scripts/project-lifecycle-15-inspect.py`, `docs/project-lifecycle-15.md` | Save pre-open decision follow-up | Second conditional alert and original-path attribute checks identified; no save invoked |
 | `scripts/midi-activation-15-inspect.py`, `docs/midi-activation-15.md` | MIDI scanner receiver follow-up | Current receiver/vtables and empty detail records observed without MIDI transmission |
+| `scripts/Read-ProjectCandidates.ps1`, `scripts/project-candidate-provenance-inspect.py`, `docs/project-candidate-observation.md` | Bounded candidate and root provenance | Current matching path/root candidate observed; active selection and lifecycle completion unverified |
+| `scripts/project-open-16-snapshot.ps1`, `scripts/project-open-16-inspect.py`, `scripts/project-open-lifetime-16-inspect.py`, `docs/project-open-16.md` | Host-open thread and ownership | Calling-thread comparison and saved thread ID observed; conditional path copies and message fields traced; delivery, full lifetime and completion unresolved |
+| `scripts/project-create-save-16-inspect.py`, `docs/project-create-save-16.md` | Additional save predicate | Local-volume branch narrowed; target, alerts and save completion unresolved |
+| `scripts/midi-activation-16-inspect.py`, `docs/midi-activation-16.md` | Scanner request-path follow-up | Output-collection return and conditional request-object submission traced; transmission and mapping unverified |
 
 ## Update Log
 
@@ -100,3 +104,4 @@
 | 2026-11-10 | Measured the 3.5 no-write status timeout and current informer snapshot; traced host-open, second-instance, save-preflight and queue-consumer paths without invoking a project operation. |
 | 2026-11-10 | Verified one isolated in-process path-class lookup and release; traced open enqueue, save preflight and MIDI scanner follow-ups without a project action. |
 | 2026-11-10 | Verified a synthetic Unicode path-object setter and field split in the isolated host; checked current scanner receiver and traced open/save decision paths. |
+| 2026-11-10 | Observed a bounded project candidate/root match and traced calling-thread dispatch, save and scanner branches; no lifecycle operation or MIDI transmission was performed. |

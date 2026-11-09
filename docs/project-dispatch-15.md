@@ -16,6 +16,8 @@ Both the direct host-open application call and this conditional posted-message p
 
 The consumer's actual branch, thread, object lifetime and schedule remain unknown. The specific conditions and delivery of any prompts, correlation of errors or completion with the intended project, and a supported noninteractive entry remain unestablished. Static application vtables and message names do not justify invoking the internal host method or a project mutation.
 
+`project-open-16.md` subsequently traced the direct-versus-posted predicate to a calling-thread-ID comparison and sampled the backing thread ID. The queue consumer's actual execution thread and delivery remain unobserved.
+
 ## Reproduction
 
 `E:\Py\python.exe scripts/project-dispatch-15-inspect.py` checks machine, timestamp, preferred base, exact action strings, both application RTTI names and the two vtable slots. It decodes each entire containing runtime function from its PE-declared beginning and prints selected instruction spans. The focused check completed successfully after correcting the full namespace in the script's initial RTTI expectation. No process snapshot was taken in this session.

@@ -2,7 +2,14 @@
 
 Version: 0.1.0. The complete user goal remains active and is not achieved. The current server has 23 MIDI Remote tools; project creation, saving, event editing and parameterized rendering are not implemented, and current live MIDI operations have not passed.
 
-## Current session 15 evidence
+## Current session 16 evidence
+
+- A bounded read-only observer found one isolated PID 39068 `PArrangement` candidate whose path fields matched the test CPR and whose `+0x108` pointer matched the sampled global `MProject` root. Static constructor tracing identifies that field as a constructed `MRoot`; the unlocked observation does not establish selected-document identity or an open/save result (`docs/project-candidate-observation.md`).
+- The host-open predicate compares the calling thread ID with a stored event-handler ID. In a separate snapshot the stored ID matched a private project-window thread; actual queue wake, consumer thread, lifetime, prompts and completion remain unverified (`docs/project-open-16.md`).
+- Static scanner tracing identified a conditional request-object submission path and showed that the examined filter receiver returns whether its output collection is nonempty, not activation success. A separate save predicate narrowed the local-volume candidate without proving a prompt-free save (`docs/midi-activation-16.md`, `docs/project-create-save-16.md`). No project method or MIDI transmission was performed in this session.
+- Current 3.5 MIDI status has not produced a successful handshake. Create/save/edit/reopen and full feature coverage remain unimplemented; the complete user goal is active.
+
+## Session 15 evidence
 
 - A separately named fixed diagnostic image, loaded once into isolated PID 39068, obtained an `FNPath` interface and called its setter with a synthetic Unicode absolute path and mode `0`. The setter returned 0; bounded direct reads of its directory and filename fields matched the input, and the release call returned without exception. The synthetic CPR path was absent before and after; Cubase remained responsive immediately afterward (`artifacts/native-path-roundtrip/roundtrip-result-39068.json`). This is a temporary object test, not a host-open, create or save operation; see `docs/native-probe.md`.
 - A current read-only scanner snapshot observed the static receiver and both expected vtables, with two MCP-named scanner records and zero-length detail ranges (`artifacts/ipc/midi-scanner-receiver-39068-ffc4f125c0514c3a9fffeb2261f5c2c7.json`). It does not establish inquiry transmission or the cause of missing MIDI mapping activation (`docs/midi-activation-15.md`).
