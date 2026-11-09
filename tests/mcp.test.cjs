@@ -42,6 +42,7 @@ test('all session operations reject an obsolete bridge before host dispatch', as
         ['cubase_locator_set', { session: 'old', display: 'primary', locator: 'cursor', time: '1.1.1.0' }],
         ['cubase_commands_list', { session: 'old' }],
         ['cubase_command_execute', { session: 'old', key: 'edit.undo', confirmCurrentSelection: true }],
+        ['cubase_project_save', { session: 'old', projectPath: 'E:\\VC\\CubaseMCP\\artifacts\\unopened.cpr', confirmCurrentProjectPath: true }],
         ['cubase_selected_track', { session: 'old' }],
         ['cubase_track_navigate', { session: 'old', direction: 'next', expectedUniqueId: 'track' }]
     ];
@@ -80,6 +81,29 @@ test('bridge contract rejects old scripts, inactive mappings and stale sessions'
     assert.equal(inspectBridge(null).readyForOperations, false);
     const remoteSource = readFileSync(join(__dirname, '../remote/controller.js'), 'utf8');
     assert.ok(remoteSource.includes(`var BRIDGE_REVISION = '${EXPECTED_BRIDGE_REVISION}';`));
+});
+
+test('MCP Save uses the prepared input route rather than the legacy surface pulse', async () => {
+    const originalRequest = MidiClient.prototype.request, originalSave = MidiClient.prototype.executeSave;
+    const calls = [];
+    MidiClient.prototype.request = async function (op) {
+        calls.push(op);
+        if (op !== 'bridge.status') throw new Error('Unexpected legacy request');
+        return { session: 'save', active: true, appVersion: '16.0.5', bridgeRevision: EXPECTED_BRIDGE_REVISION };
+    };
+    MidiClient.prototype.executeSave = async function (args) { calls.push({ save: args }); return { execution: 'submitted', bindingObserved: true }; };
+    const runtime = createServer(), client = new Client({ name: 'save-route-test', version: '1' });
+    const [left, right] = InMemoryTransport.createLinkedPair();
+    try {
+        await Promise.all([runtime.server.connect(right), client.connect(left)]);
+        const args = { session: 'save', key: 'project.save', confirmCurrentSelection: true };
+        const response = await client.callTool({ name: 'cubase_command_execute', arguments: args });
+        assert.notEqual(response.isError, true);
+        assert.deepEqual(calls, ['bridge.status', { save: args }]);
+    } finally {
+        await client.close(); await runtime.server.close(); runtime.close();
+        MidiClient.prototype.request = originalRequest; MidiClient.prototype.executeSave = originalSave;
+    }
 });
 
 test('MCP forwards selected-channel runtime guards to the current bridge', async () => {
@@ -151,7 +175,7 @@ test('real stdio server exposes tools and rejects missing MIDI without fallback'
     try {
         await client.connect(transport);
         const listed = await client.listTools();
-        assert.equal(listed.tools.length, 24);
+        assert.equal(listed.tools.length, 25);
         assert.ok(listed.tools.some(tool => tool.name === 'cubase_parameter_set'));
         assert.ok(listed.tools.some(tool => tool.name === 'cubase_parameter_get'));
         assert.ok(listed.tools.some(tool => tool.name === 'cubase_parameter_edit_lock_set'));

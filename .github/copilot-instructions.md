@@ -18,10 +18,10 @@
 - [x] Requirements and strict background constraints recorded.
 - [x] Project scaffold and dependencies installed.
 - [x] No editor extension installation required.
-- [x] Controller 3.9 passed the 109-test suite; 3.10 fixed-Save changes passed focused checks and are installed in the isolated host.
+- [x] Controller 3.13 is installed and active; its focused checks and real MCP tempo edit/Save/fresh-reopen chain passed. The 109-test full-suite result belongs to 3.9.
 - [x] Native MIDI prerequisites and earlier real Cubase AI16.0.5 core-chain verification recorded.
 - [x] Observe a device/mapping activation and live MCP read/discovery without foreground input; one distinct DirectAccess parameter write and restore were observed.
 - [x] Re-establish the mapping in a distinct isolated process without replaying the earlier timed-out status request.
-- [ ] Establish whether the submitted fixed Save actually completes and persists; the session 27 fixture was unchanged during observation.
+- [x] Establish a concrete current-project Save and semantic persistence chain on a distinct owned fixture; session 28 read 146.75 after a fresh reopen. The earlier session 27 outcome remains unconfirmed.
 - [ ] Resolve the separate selected-track and bank-channel volume binding writes whose requested values were not observed; validate additional controls individually.
-- [ ] Implement and verify project creation, saving, event editing, rendering and remaining Cubase feature coverage.
+- [ ] Implement and verify parameterized project creation/open/save-as, track/event editing, rendering and remaining Cubase feature coverage.

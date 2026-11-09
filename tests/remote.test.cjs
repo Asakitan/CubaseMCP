@@ -18,7 +18,7 @@ test('large host maxima and error messages preserve compact handshake and bounde
         page.makeValueBinding = () => { throw new Error('unavailable-' + 'x'.repeat(5000)); };
     });
     assert.equal(harness.status.ok, true, JSON.stringify(harness.status));
-    assert.equal(harness.status.data.bridgeRevision, '2026-11-10-coverage-3.10');
+    assert.equal(harness.status.data.bridgeRevision, '2026-11-10-coverage-3.13');
     let offset = 0;
     const keys = [];
     do {
@@ -764,14 +764,32 @@ function fixture(configure = () => {}, logger) {
         expectInputNameEquals(name) { state.detectionNames.push(name); return detection; },
         expectOutputNameEquals(name) { state.detectionNames.push(name); return detection; }
     };
+    let activePage = page;
+    function switchPage(next) {
+        if (activePage.mOnDeactivate) activePage.mOnDeactivate(device, mapping);
+        mapping = {}; activePage = next;
+        next.mOnActivate(device, mapping);
+    }
+    page.mAction = { mActivate: { trigger() { switchPage(page); } } };
+    const savePage = { makeCommandBinding: page.makeCommandBinding,
+        mAction: { mActivate: { trigger() { switchPage(savePage); } } } };
     const driver = {
         mPorts: {
             makeMidiInput(name) { state.portNames.push(name); return input; },
             makeMidiOutput(name) { state.portNames.push(name); return output; }
         },
         makeDetectionUnit() { return detection; },
-        mMapping: { makePage(name) { assert.equal(name, 'CubaseAI MCP'); return page; } },
+        mMapping: { makePage(name) { assert.ok(['CubaseAI MCP', 'CubaseAI MCP Save'].includes(name)); return name === 'CubaseAI MCP' ? page : savePage; } },
         mSurface: {
+            makeButton(x, y, w, h) {
+                assert.deepEqual([x, y, w, h], [0, 0, 1, 1]);
+                const value = this.makeCustomValueVariable('command.project.save');
+                value.getProcessValue = () => 0;
+                value.mMidiBinding = { setInputPort(port) { assert.equal(port, input); return this; },
+                    setIsConsuming(value) { assert.equal(value, true); return this; },
+                    bindToNote(channel, note) { assert.deepEqual([channel, note], [0, 1]); return this; } };
+                return { mSurfaceValue: value };
+            },
             makeCustomValueVariable(name) {
                 const value = {
                     setProcessValue(activeDevice, amount) {
@@ -816,7 +834,7 @@ function fixture(configure = () => {}, logger) {
     }
     function tick() {
         const before = state.frames.length;
-        page.mOnIdle(device, mapping);
+        activePage.mOnIdle(device, mapping);
         assert.ok(state.frames.length - before <= 4, 'frame budget exceeded');
     }
     function transact(op, args, requestId, deadline) {
@@ -829,14 +847,16 @@ function fixture(configure = () => {}, logger) {
         }
         assert.fail(`no response for ${op}`);
     }
-    function activate() {
+    function activate(beforeActivate) {
+        activePage = page;
         mapping = {};
+        if (beforeActivate) beforeActivate(device, mapping);
         page.mOnActivate(device, mapping);
     }
     activate();
     const status = transact('bridge.status', {});
     const harness = {
-        ...state, state, api, bridge, host, page, device, nodes, receive, tick, transact, activate, status,
+        ...state, state, api, bridge, host, page, savePage, device, nodes, receive, tick, transact, activate, status,
         currentMapping() { return mapping; },
         call(op, args = {}, id) { return transact(op, { session: harness.session, ...args }, id); },
         emit(key, amount) { state.surfaces[key].mOnProcessValueChange(device, amount, 0); },
@@ -913,7 +933,7 @@ test('factory registers exact ports and reports only real app and root data', ()
     assert.deepEqual(harness.detectionNames, harness.portNames);
     const status = harness.status.data;
     assert.equal(status.appVersion, '16.0.5');
-    assert.equal(status.bridgeRevision, '2026-11-10-coverage-3.10');
+    assert.equal(status.bridgeRevision, '2026-11-10-coverage-3.13');
     assert.deepEqual(status.policy, { backgroundOnly: true, fallback: false });
     assert.equal(status.discovery.controlTotal, 135);
     assert.equal(harness.call('objects.list', { root: 'trackSelection' }).data.baseObject.uniqueIdString, 'uid-1');
@@ -1151,13 +1171,44 @@ test('only confirmed allowlisted commands with canPerform true pulse their bound
     delete harness.state.surfaces['command.edit.redo'].command.canPerform;
     expectError(harness.call('commands.execute', { key: 'edit.redo', confirmCurrentSelection: true }), 'API_UNAVAILABLE');
     assert.equal(harness.commandRuns.length, 1);
-    expectError(harness.call('commands.execute', { key: 'project.save' }), 'CONFIRMATION_REQUIRED');
+    expectError(harness.call('commands.execute', { key: 'project.save' }), 'SAVE_INPUT_REQUIRED');
+    const save = { key: 'project.save', confirmCurrentSelection: true, inputDeadline: Date.now() + 10000 };
     harness.state.commandAllowed = false;
-    expectError(harness.call('commands.execute', { key: 'project.save', confirmCurrentSelection: true }), 'COMMAND_UNAVAILABLE');
+    expectError(harness.call('commands.prepare', save), 'COMMAND_UNAVAILABLE');
+    harness.session = harness.transact('bridge.status', {}).data.session;
     harness.state.commandAllowed = true;
-    assert.equal(harness.call('commands.execute', { key: 'project.save', confirmCurrentSelection: true }).data.execution, 'submitted');
-    assert.deepEqual(harness.commandRuns, ['Undo', 'Save']);
-    assert.deepEqual(harness.writes.slice(-2).map(write => [write.key, write.value]), [['command.project.save', 1], ['command.project.save', 0]]);
+    const prepared = harness.call('commands.prepare', save).data;
+    assert.equal(prepared.execution, 'prepared_not_submitted');
+    harness.session = prepared.session;
+    assert.equal(harness.call('commands.result', { token: prepared.token }).data.execution, 'awaiting_input');
+    harness.state.surfaces['command.project.save'].command.mOnValueChange(harness.device, harness.currentMapping(), 1);
+    assert.equal(harness.call('commands.result', { token: prepared.token }).data.bindingObserved, true);
+    const finished = harness.call('commands.finish', { token: prepared.token }).data;
+    assert.equal(finished.returnedToMain, true); harness.session = finished.session;
+    assert.deepEqual(harness.commandRuns, ['Undo']);
+    assert.equal(harness.writes.some(write => write.key === 'command.project.save'), false);
+});
+
+test('tempo arriving immediately before activation is adopted only for that mapping', () => {
+    const h = fixture(), display = h.host.mTransport.mTimeDisplay;
+    h.deactivate();
+    h.activate((device, mapping) => display.mOnChangeTempoBPM(device, mapping, 134));
+    h.session = h.transact('bridge.status', {}).data.session;
+    assert.equal(h.call('transport.get').data.observed.tempo.bpm, 134);
+    h.deactivate();
+    display.mOnChangeTempoBPM(h.device, {}, 199);
+    h.activate(); h.session = h.transact('bridge.status', {}).data.session;
+    assert.equal(h.call('transport.get').data.observed.tempo, null);
+});
+
+test('a project reopening on the saved internal page returns without issuing Save', () => {
+    const h = fixture();
+    h.savePage.mAction.mActivate.trigger(h.currentMapping());
+    h.tick();
+    h.session = h.transact('bridge.status', {}).data.session;
+    assert.equal(h.call('transport.get').ok, true);
+    assert.equal(h.commandRuns.length, 0);
+    assert.equal(h.writes.some(write => write.key === 'command.project.save'), false);
 });
 
 test('missing DirectAccess and wrong app versions fail closed', () => {

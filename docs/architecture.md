@@ -15,6 +15,8 @@ The return path carries correlated replies. There is no adapter router, foregrou
 - `src/config.ts`: literal background-only policy and exact port names.
 - `src/bridge-contract.ts`: one required host version, bridge revision and active-session contract shared by server and doctor.
 - `src/midi.ts`: native MIDI ownership, request IDs, timeout/cancellation uncertainty and fault latching.
+- The fixed Save workflow uses that same connection: prepare the minimal internal mapping page, send one Note On, observe the binding, send one Note Off and return to the primary mapping. Its reply contains a new session; it is not a disk-commit acknowledgement. An unarmed saved internal page returns to the primary mapping without Save input on startup. Matching pre-activation tempo feedback is staged for the activated device/mapping only. See `docs/project-save-chain-28.md`.
+- `src/save-observer.ts`: the 25th tool observes stable changed bytes at a caller-confirmed existing CPR after that one MIDI Save. It does not select a path, execute a second host method or certify semantic reopen; bounds and unconfirmed outcomes are explicit (`docs/project-save-tool.md`).
 - `remote/protocol.js`: shared ES5 codec, 7-bit ASCII JSON, bounded fragmented frames and checksum validation.
 - `remote/controller.js`: host API operations, current mapping session, observed object/tag registry and command allowlist.
 - `remote/CubaseAI_MCP.js`: top-level Cubase script entry. It constructs the controller without assuming the entry script has a CommonJS `module` object.
@@ -96,3 +98,9 @@ Session 26 produced two byte-compared disk fixtures, a prearmed non-admitting pl
 The separately generated first-open operation now performs distinct one-shot submissions for two owned fresh processes, with retained lifetime checks, the restricted Job, read-only readiness and a passive observer; the resulting root and mapping were subsequently observed in one process (`docs/first-open-27.md`). It remains a fixed diagnostic, not an MCP project-creation backend.
 
 The single MIDI MCP runtime in revision 3.10 adds `project.save` as a fixed command, gated by the active session, explicit current-context confirmation and host `canPerform`. Its receipt is submission only; destination, potential input requests and disk completion remain host-controlled. In the owned fixture experiment a DirectAccess edit was read back, but the fixture did not change within the observation window after one Save submission (`docs/project-save-27.md`). This is not a persistence guarantee or a verified failure.
+
+## Session 28 persistence and temporary-file boundary
+
+Revision 3.13 replaces the ineffective Save pulse with the fixed prepared MIDI workflow described above. A distinct real MCP tempo edit and Save changed the owned CPR, and fresh-process MCP readback observed 146.75 with matching saved bytes. This is one verified semantic persistence chain, not a general project creation or save-as API. The fixed first-open and minimal diagnostic helpers remain outside the production MCP surface; there is no alternate runtime route.
+
+`scripts/Use-WorkspaceTemp.ps1` sets process-scoped TEMP/TMP to the workspace's E-drive `artifacts/scratch-temp` for task helper, compiler and owned-launch descendants. It rejects reparse points and does not change global user/system settings. Twelve specifically identified C temporary diagnostics/setup logs and crash records were moved to an E-drive evidence archive; unrelated live-application files and active dependencies were preserved. No broad C-drive deletion is part of the server.

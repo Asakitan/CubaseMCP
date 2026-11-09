@@ -8,7 +8,7 @@ Windows 本地 MCP，使用单一 MIDI Remote 后台通道控制 Cubase 16。参
 - 只有 `midi` 后端；无 mock、UI、其他适配器或协议 fallback。
 - 指定端口不存在、对象失效、API 缺失、命令不可执行时直接返回错误。
 - 超时或取消后的修改可能已被 Cubase 接收，结果记为 `unknown`；不重试、不重放。重新连接必须显式调用工具。
-- 当前后端支持提交当前工程的固定保存命令，但参数化工程创建、另存为、事件编辑、保存完成确认和参数化导出仍未实现；完整目标仍在进行，新增能力必须以实际 Cubase 结果验收。
+- 当前工程已通过真实 MCP 完成一次速度编辑、保存落盘与全新进程重开后的内容读回；参数化工程创建、另存为、轨道和事件编辑、参数化导出仍在推进，尚未达到完整功能覆盖。
 
 ## 安装和启动
 
@@ -50,9 +50,11 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 3. 带同一 `session`、`root`、`objectId` 和 `tag` 调用 `cubase_parameter_set`；可指定 normalized、plain 或 display 格式。
 4. 读回确认修改。`submitted` 只表示已经提交，不等于操作已完成。
 
-当前工程保存可通过 `cubase_command_execute` 提交 `key: "project.save"`，并携带当前 `session` 和 `confirmCurrentSelection: true`。目标路径由 Cubase 当前工程决定；这不是带路径的另存为，也没有保存完成回调。若请求超时或目标文件未出现可确认变化，结果保持未确认，不自动重发。
+当前工程保存通过 `cubase_command_execute` 提交 `key: "project.save"`、当前 `session` 和 `confirmCurrentSelection: true`。3.13 使用独立的最小 Save 映射页，只发送一次 MIDI 按下，观察到绑定后释放并返回主映射；后续请求使用回执中的**新 `session`**，重新发现对象。目标路径仍由当前工程决定，没有带路径的另存为或通用完成回调；超时后的未确认结果不重发。实测链路与边界见 [保存与重开](docs/project-save-chain-28.md)。
 
-共 24 个 MCP 工具。单参数及单控制项查询、参数编辑锁、所选轨道身份和前后导航、混音通道位置、速度和时间显示反馈，以及宿主版本和功能上限查询均有明确会话约束。`cubase_parameter_edit_lock_set` 需要已观察的参数和匹配的 `expectedLocked`，回执表示已提交；使用 `cubase_parameter_get` 读取后续状态。已选轨控制包括四段 EQ、前级滤波、发送、乐器槽、五类通道条效果及其参数页、自动化和只读电平表；发送槽数量按宿主返回值确定，可用性以实际返回为准。`cubase_control_set` 可同时传入 `expectedTrackUniqueId` 和 `expectedTrackRuntimeId` 检查选中通道；`cubase_track_navigate` 可传入 `expectedRuntimeId`，两个运行时 ID 均来自 `cubase_selected_track`。这些检查不是与宿主状态原子绑定的事务。插件替换要求 `confirmReplacement:true`，当前选择命令要求 `confirmCurrentSelection:true`。另有 Control Room 及固定混音器银行操作；声明存在不等于 AI 版本实际开放了相应功能。菜单执行仅限固定清单。
+`cubase_project_save` 把单次 MIDI 保存与文件观察封装为第 25 个工具：传入已确认的当前 CPR 绝对路径及 `confirmCurrentProjectPath: true`，返回 `file.state`。`changed_stable` 表示观察到内容变化并稳定，`change_not_observed` 表示未确认变化；路径来自调用方声明，工具不选择目标、不另存为，也不把文件变化冒充重开语义验收。该新封装通过定向 MCP 测试，实际宿主验收记录来自前述底层保存链路；详见 [工具契约](docs/project-save-tool.md)。
+
+共 25 个 MCP 工具。单参数及单控制项查询、参数编辑锁、所选轨道身份和前后导航、混音通道位置、速度和时间显示反馈，以及宿主版本和功能上限查询均有明确会话约束。`cubase_parameter_edit_lock_set` 需要已观察的参数和匹配的 `expectedLocked`，回执表示已提交；使用 `cubase_parameter_get` 读取后续状态。已选轨控制包括四段 EQ、前级滤波、发送、乐器槽、五类通道条效果及其参数页、自动化和只读电平表；发送槽数量按宿主返回值确定，可用性以实际返回为准。`cubase_control_set` 可同时传入 `expectedTrackUniqueId` 和 `expectedTrackRuntimeId` 检查选中通道；`cubase_track_navigate` 可传入 `expectedRuntimeId`，两个运行时 ID 均来自 `cubase_selected_track`。这些检查不是与宿主状态原子绑定的事务。插件替换要求 `confirmReplacement:true`，当前选择命令要求 `confirmCurrentSelection:true`。另有 Control Room 及固定混音器银行操作；声明存在不等于 AI 版本实际开放了相应功能。菜单执行仅限固定清单。
 
 `cubase_status` 返回紧凑握手，不再内嵌完整对象和控制表。`cubase_controls_list` 的控制和分组分别分页，按 `nextOffset`、`nextGroupOffset` 获取全部项目；`cubase_transport_get` 提供速度与定位器的可用性和实际反馈。长身份标识原样保留，描述性元数据有长度上限。
 
@@ -70,9 +72,9 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 
 ## 验证状态
 
-3.9 的 TypeScript 构建与完整测试 **109/109** 通过；加入 3.10 固定保存命令后重新构建，并通过与该命令有关的 3 项定向检查。统一版本门禁覆盖全部 20 个带会话的宿主操作，诊断命令将端口和握手状态与实际操作就绪状态分开报告。
+3.13 已构建并通过本次改动相关的 3 项定向检查；此前 3.12 的 7 项 Save/MIDI/MCP 定向检查通过，随后真实 MCP 保存与重开内容验收通过。没有重复运行未变化的完整套件，**109/109** 是 3.9 的历史结果。统一版本门禁覆盖全部带会话的宿主操作。
 
-控制器 `2026-11-10-coverage-3.10` 已安装；当前隔离进程通过真实 MCP 完成参数写入和读回，也提交了一次固定保存命令。此前 3.8 曾记录设备和映射激活；临时测试端口变化后一次状态请求超时，旧请求没有重放，后续通过新的隔离进程恢复了映射。
+控制器 `2026-11-10-coverage-3.13` 已安装并在隔离实例激活。正式 MCP 把独立副本速度改为 **146.75** 并保存，CPR 从 **93,085** 增至 **93,730** 字节；全新进程重新打开后，MCP 读回 **146.75**，文件与保存快照一致。保存时记录的内部页在重开时自动返回主映射，不再次发出保存输入。旧的未确认请求没有重放。
 
 3.7 新增已选通道仪器槽以及混音银行通道仪器槽、通道条效果的参数银行控制。调用 `cubase_control_get` 读取完整 `pluginIdentity`，写入时原样传入 `expectedPluginIdentity`，并附带对应通道身份；回调和宿主状态并非原子绑定，提交回执仍需后续宿主反馈确认。详见 [插件参数银行](docs/midi-plugin-banks-3.7.md)。
 
@@ -80,7 +82,7 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 
 较早的 `artifacts/live-smoke/verification.json` 记录了真实 Cubase AI 16.0.5 的发现、参数、反馈和音量写入恢复；它不证明本轮新增控制项、工程存储或完整功能覆盖。新版 `verify:live` 脚本要求当前控制器，旧记录与本轮实机验收分别记录。详细状态见 [STATUS](STATUS.md)。
 
-**当前状态（第 27 轮）**：新的隔离实例恢复了后台映射；3.10 对独立测试副本的一项参数写入已读回。固定 `project.save` 命令已提交一次，但目标文件在 12 秒观察窗口内未变化，保存结果尚未确认。此前钢琴轨和 Stereo Out 银行通道的两次控制绑定写入也尚未确认，均未重放。工程创建、可靠存储、事件编辑与完整功能覆盖仍在进行。详见 [首开与映射](docs/first-open-27.md)、[保存实验](docs/project-save-27.md) 和 [A/B 实验](docs/binding-ab-26.md)。
+**当前状态（第 28 轮）**：真实 MCP 的一条速度编辑→保存落盘→全新进程重开内容保留链路已完成；这不等于全部工程或功能都已验收。参数化创建、另存为、轨道和事件编辑、导出仍未完成，旧的两次控制绑定写入和第 27 轮保存结果仍未确认。详见 [保存链路](docs/project-save-chain-28.md) 与 [首开边界](docs/first-open-27.md)。
 
 ## 原生项目接口调查
 
@@ -104,3 +106,7 @@ powershell.exe -NoProfile -File scripts/Inspect-ProjectFactory.ps1 -ProbeProject
 - https://steinbergmedia.github.io/midiremote_api_doc/
 - https://github.com/modelcontextprotocol/typescript-sdk
 - https://github.com/Julusian/node-midi
+
+## 会话临时文件
+
+本轮将已确认属于本任务的 12 个 C 盘会话临时及崩溃文件（3,937,635 字节）归档到 E 盘并移除 C 盘副本；保留其他正在运行软件的临时文件和已安装依赖。后续任务辅助进程、编译和自有 Cubase 启动的 `TEMP`/`TMP` 指向 `E:\VC\CubaseMCP\artifacts\scratch-temp`，只影响这些进程，不更改系统或用户全局设置。

@@ -11,7 +11,7 @@ var MAX_OBJECTS = 2048;
 var MAX_TAGS = 8192;
 var MAX_PLUGINS = 8192;
 var MAX_INTEGER = 9007199254740991;
-var BRIDGE_REVISION = '2026-11-10-coverage-3.10';
+var BRIDGE_REVISION = '2026-11-10-coverage-3.13';
 
 function fail(code, message, details, execution) {
     var error = new Error(message);
@@ -138,6 +138,9 @@ function createController(api, logger) {
     var observedTrackId = null;
     var observedTrackRuntimeId = null;
     var commands = Object.create(null);
+    var armedSave = null;
+    var savePage = null, savePageActive = false, returnUnarmedSavePage = false;
+    var stagedTempo = null;
     var inIdle = false;
     var writingSurface = 0;
     var malformedFrames = 0;
@@ -939,6 +942,7 @@ function createController(api, logger) {
 
     function commandsExecute(request, args) {
         if (typeof args.key !== 'string' || !commands[args.key]) fail('COMMAND_NOT_ALLOWED', 'Command is not in the fixed background-only allowlist.');
+        if (args.key === 'project.save') fail('SAVE_INPUT_REQUIRED', 'Use the fixed prepared MIDI input path for Save.');
         if (args.confirmCurrentSelection !== true) fail('CONFIRMATION_REQUIRED', 'confirmCurrentSelection must be true.');
         var record = commands[args.key];
         if (record.error) fail(record.error.code, record.error.message, record.error.details);
@@ -950,6 +954,70 @@ function createController(api, logger) {
             setSurface(record, 1, true);
             return receipt(request, { key: args.key, context: record.definition.context });
         });
+    }
+
+    function prepareSave(request, args) {
+        if (args.key !== 'project.save' || args.confirmCurrentSelection !== true) fail('CONFIRMATION_REQUIRED', 'A confirmed fixed project.save command is required.');
+        if (!finite(args.inputDeadline) || args.inputDeadline <= Date.now()) fail('REQUEST_EXPIRED', 'Save input deadline expired.');
+        var record = commands['project.save'];
+        if (record.error) fail(record.error.code, record.error.message, record.error.details);
+        if (armedSave && !armedSave.observed && Date.now() < armedSave.deadline) fail('COMMAND_BUSY', 'A Save input is already pending.');
+        if (invoke(record.surface, 'getProcessValue', [activeDevice]) !== 0) fail('COMMAND_INPUT_HELD', 'The fixed Save input has not been released.');
+        armedSave = { token: request.id, originSession: session, deadline: Math.min(request.deadline, args.inputDeadline), observed: false, stage: 'switching' };
+        invoke(savePage.mAction.mActivate, 'trigger', [activeMapping]);
+        return { deferredSaveResponse: true };
+    }
+
+    function saveResult(args) {
+        if (!armedSave || args.token !== armedSave.token || args.session !== armedSave.session) fail('COMMAND_TOKEN_CHANGED', 'The prepared Save token is no longer current.');
+        if (armedSave.observed) return { session: session, key: 'project.save', token: armedSave.token, requestId: armedSave.token, execution: 'submitted', bindingObserved: true,
+            inputReleased: invoke(commands['project.save'].surface, 'getProcessValue', [activeDevice]) === 0 };
+        return { session: session, token: armedSave.token, execution: 'awaiting_input' };
+    }
+
+    function finishSave(request, args) {
+        if (!armedSave || !armedSave.observed || args.token !== armedSave.token || args.session !== armedSave.session ||
+            invoke(commands['project.save'].surface, 'getProcessValue', [activeDevice]) !== 0) fail('SAVE_RETURN_NOT_ADMITTED', 'The Save input is not ready to return.');
+        armedSave.stage = 'returning'; armedSave.finishId = request.id;
+        invoke(page.mAction.mActivate, 'trigger', [activeMapping]);
+        return { deferredSaveResponse: true };
+    }
+
+    function setupSaveInput() {
+        var record = { key: 'command.project.save', definition: commandDefinitions.filter(function (d) { return d.key === 'project.save'; })[0], error: null };
+        commands['project.save'] = record;
+        try {
+            var button = invoke(driver.mSurface, 'makeButton', [0, 0, 1, 1]);
+            record.surface = button.mSurfaceValue;
+            var midiBinding = invoke(record.surface.mMidiBinding, 'setInputPort', [input]);
+            invoke(midiBinding, 'setIsConsuming', [true]);
+            invoke(midiBinding, 'bindToNote', [0, 1]);
+            savePage = invoke(driver.mMapping, 'makePage', ['CubaseAI MCP Save']);
+            record.binding = invoke(savePage, 'makeCommandBinding', [record.surface, 'File', 'Save']);
+            method(record.binding, 'canPerform');
+            record.binding.mOnValueChange = function (device, mapping, value) {
+                if (device === activeDevice && mapping === activeMapping && value === 1 && armedSave &&
+                    armedSave.mapping === mapping && armedSave.session === session) armedSave.observed = true;
+            };
+            savePage.mOnActivate = function (device, mapping) {
+                activeDevice = device; activeMapping = mapping; savePageActive = true;
+                session = instance + '-save-' + (++generation); pending = []; outbound = []; decoder.reset();
+                if (!armedSave || armedSave.stage !== 'switching') { returnUnarmedSavePage = true; return; }
+                armedSave.session = session; armedSave.mapping = mapping; armedSave.stage = 'input';
+                try {
+                    if (Date.now() >= armedSave.deadline) fail('REQUEST_EXPIRED', 'Save preparation expired.');
+                    if (!hostBool(invoke(record.binding, 'canPerform', [mapping]))) fail('COMMAND_UNAVAILABLE', 'Save is not performable.');
+                    enqueueResponse({ v: 1, id: armedSave.token, ok: true, data: { session: session, originSession: armedSave.originSession,
+                        key: 'project.save', token: armedSave.token, inputDeadline: armedSave.deadline, execution: 'prepared_not_submitted' } });
+                } catch (error) { armedSave.stage = 'denied'; armedSave.finishId = armedSave.token; armedSave.denialError = errorData(error); }
+            };
+            savePage.mOnDeactivate = function (device, mapping) {
+                if (device !== activeDevice || mapping !== activeMapping) return;
+                activeMapping = null; session = null; pending = []; outbound = []; decoder.reset();
+                if (!armedSave || armedSave.stage !== 'returning') armedSave = null;
+            };
+            savePage.mOnIdle = serviceIdle;
+        } catch (error) { record.error = errorData(error); }
     }
 
     function clearGroupObservation(group) {
@@ -1092,6 +1160,7 @@ function createController(api, logger) {
         try {
             if (!display) fail('API_UNAVAILABLE', 'Transport time display is unavailable.');
             display.mOnChangeTempoBPM = function (device, mapping, bpm) {
+                if (finite(bpm) && bpm > 0) stagedTempo = { device: device, mapping: mapping, bpm: bpm };
                 if (device === activeDevice && mapping === activeMapping && finite(bpm) && bpm > 0) {
                     transportObservation.tempo = { bpm: bpm };
                 }
@@ -1182,6 +1251,7 @@ function createController(api, logger) {
         if (!activeMapping || !session || request.args.session !== session) fail('STALE_SESSION', 'Use the active session from bridge.status.');
         method(host, 'makeDirectAccess');
         var args = request.args;
+        if (savePageActive && request.op !== 'commands.result' && request.op !== 'commands.finish') fail('SAVE_PAGE_BUSY', 'Only the pending Save transaction is accepted on this page.');
         if (request.op === 'objects.list') return objectsList(args);
         if (request.op === 'host.info') return hostInfo();
         if (request.op === 'objects.get') return objectsGet(args);
@@ -1197,6 +1267,9 @@ function createController(api, logger) {
         if (request.op === 'controls.set') return controlsSet(request, args);
         if (request.op === 'commands.list') return { session: session, commands: commandList() };
         if (request.op === 'commands.execute') return commandsExecute(request, args);
+        if (request.op === 'commands.prepare') return prepareSave(request, args);
+        if (request.op === 'commands.result') return saveResult(args);
+        if (request.op === 'commands.finish') return finishSave(request, args);
         if (request.op === 'track.current') return selectedTrack();
         if (request.op === 'track.navigate') return navigateTrack(request, args);
         if (request.op === 'transport.get') return transportGet();
@@ -1250,6 +1323,9 @@ function createController(api, logger) {
     };
 
     page.mOnActivate = function (device, mapping) {
+        var returningSave = armedSave && armedSave.stage === 'returning' ? armedSave : null;
+        savePageActive = false;
+        returnUnarmedSavePage = false;
         trace('mapping activated');
         loggedInput = false;
         loggedDecoded = false;
@@ -1268,6 +1344,8 @@ function createController(api, logger) {
         clearTrackObservation();
         clearBankObservations();
         clearTransportObservation();
+        if (stagedTempo && stagedTempo.device === device && stagedTempo.mapping === mapping) transportObservation.tempo = { bpm: stagedTempo.bpm };
+        if (!returningSave) armedSave = null;
         Object.keys(controls).forEach(function (key) {
             controls[key].observed = null; controls[key].display = null; controls[key].revision = 0;
         });
@@ -1287,6 +1365,12 @@ function createController(api, logger) {
                 root.error.details = { stage: root.stage, stack: error.stack ? String(error.stack) : null };
             }
         });
+        if (returningSave) {
+            if (returningSave.denialError) enqueueResponse({ v: 1, id: returningSave.finishId, ok: false, error: returningSave.denialError });
+            else enqueueResponse({ v: 1, id: returningSave.finishId, ok: true, data: { session: session, key: 'project.save', token: returningSave.token,
+                requestId: returningSave.token, execution: 'submitted', bindingObserved: true, returnedToMain: true } });
+            armedSave = null;
+        }
     };
 
     page.mOnDeactivate = function (device, mapping) {
@@ -1311,10 +1395,12 @@ function createController(api, logger) {
         clearTrackObservation();
         clearBankObservations();
         clearTransportObservation();
+        stagedTempo = null;
+        if (!armedSave || armedSave.stage !== 'switching') armedSave = null;
         Object.keys(controls).forEach(function (key) { controls[key].observed = null; controls[key].display = null; });
     };
 
-    page.mOnIdle = function (device, mapping) {
+    function serviceIdle(device, mapping) {
         if (!loggedIdle) {
             loggedIdle = true;
             trace('first idle: matching device=' + (device === activeDevice) + ', mapping=' + (mapping === activeMapping));
@@ -1322,12 +1408,22 @@ function createController(api, logger) {
         if (device !== activeDevice || mapping !== activeMapping || inIdle) return;
         inIdle = true;
         try {
+            if (savePageActive && returnUnarmedSavePage) {
+                returnUnarmedSavePage = false;
+                invoke(page.mAction.mActivate, 'trigger', [activeMapping]);
+                return;
+            }
+            if (savePageActive && armedSave && armedSave.stage === 'denied') {
+                armedSave.stage = 'returning';
+                invoke(page.mAction.mActivate, 'trigger', [activeMapping]);
+                return;
+            }
             if (pending.length && outbound.length <= MAX_FRAMES - FRAME_RESERVE) {
                 var request = pending.shift();
                 var response;
                 try { response = { v: 1, id: request.id, ok: true, data: dispatch(request) }; }
                 catch (error) { response = { v: 1, id: request.id, ok: false, error: errorData(error) }; }
-                enqueueResponse(response);
+                if (!response.ok || !response.data || !response.data.deferredSaveResponse) enqueueResponse(response);
             }
             for (var index = 0; index < FRAMES_PER_IDLE && outbound.length; index++) {
                 var frame = outbound.shift();
@@ -1340,8 +1436,10 @@ function createController(api, logger) {
         } finally {
             inIdle = false;
         }
-    };
+    }
+    page.mOnIdle = serviceIdle;
 
+    setupSaveInput();
     rootNames.forEach(function (key, index) { makeRoot(key, rootPaths[index]); });
     var transport = null;
     try { transport = host && host.mTransport && host.mTransport.mValue; }
@@ -1746,6 +1844,7 @@ function createController(api, logger) {
         }
     }
     commandDefinitions.forEach(function (definition) {
+        if (definition.key === 'project.save') return;
         var record = { key: 'command.' + definition.key, definition: definition, error: null, revision: 0 };
         commands[definition.key] = record;
         try {

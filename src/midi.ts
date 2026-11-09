@@ -102,6 +102,7 @@ export class MidiClient {
     private monitor?: ReturnType<typeof setInterval>;
     private state: 'new' | 'open' | 'faulted' | 'closed' = 'new';
     private fault?: BridgeError;
+    private saveBusy = false;
 
     constructor(options: MidiClientOptions, private readonly driver?: NativeDriver) {
         if (!options || typeof options.input !== 'string' || !options.input.trim() ||
@@ -182,6 +183,60 @@ export class MidiClient {
                 this.fail(new BridgeError('MIDI_SEND_FAILED', 'MIDI submission failed.', 'unknown', describe(error)));
             }
         });
+    }
+
+    async executeSave(args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+        if (args.key !== 'project.save' || args.confirmCurrentSelection !== true || typeof args.session !== 'string' || !args.session)
+            throw new BridgeError('INVALID_SAVE_REQUEST', 'A confirmed project.save session is required.');
+        if (this.saveBusy) throw new BridgeError('MIDI_BUSY', 'A Save input is already pending.');
+        this.saveBusy = true;
+        let inputSent = false, releaseSent = false;
+        const deadline = Date.now() + this.options.timeoutMs;
+        const timeout = new AbortController();
+        const timer = setTimeout(() => timeout.abort(), this.options.timeoutMs);
+        const cancellation = signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal;
+        try {
+            const prepared = await this.request('commands.prepare', { ...args, inputDeadline: deadline }, cancellation);
+            if (!record(prepared) || prepared.originSession !== args.session || typeof prepared.session !== 'string' || !prepared.session || prepared.key !== 'project.save' ||
+                prepared.execution !== 'prepared_not_submitted' || typeof prepared.token !== 'string' ||
+                !/^[a-f0-9]{32}$/.test(prepared.token) || typeof prepared.inputDeadline !== 'number' ||
+                prepared.inputDeadline > deadline || Date.now() >= prepared.inputDeadline || cancellation.aborted)
+                throw new BridgeError('SAVE_PREPARATION_INVALID', 'Save input preparation is invalid or expired.');
+            this.checkConnected();
+            inputSent = true;
+            this.output!.sendMessage([144, 1, 127]);
+            while (!cancellation.aborted && Date.now() < prepared.inputDeadline) {
+                const result = await this.request('commands.result', { session: prepared.session, token: prepared.token }, cancellation);
+                if (!record(result) || result.session !== prepared.session || result.token !== prepared.token)
+                    throw new BridgeError('SAVE_RESULT_INVALID', 'The Save result token changed.');
+                if (result.execution === 'submitted' && result.bindingObserved === true) {
+                    if (!releaseSent) {
+                        this.checkConnected();
+                        this.output!.sendMessage([128, 1, 0]);
+                        releaseSent = true;
+                    }
+                    if (result.inputReleased === true) {
+                        const finished = await this.request('commands.finish', { session: prepared.session, token: prepared.token }, cancellation);
+                        if (!record(finished) || finished.token !== prepared.token || finished.returnedToMain !== true ||
+                            finished.execution !== 'submitted' || typeof finished.session !== 'string' || !finished.session)
+                            throw new BridgeError('SAVE_RETURN_INVALID', 'The primary mapping did not return.');
+                        return finished;
+                    }
+                } else if (result.execution !== 'awaiting_input') {
+                    throw new BridgeError('SAVE_RESULT_INVALID', 'Unexpected Save result state.');
+                }
+                await new Promise(resolve => setTimeout(resolve, 25));
+            }
+            throw new BridgeError('MIDI_TIMEOUT', 'Save binding observation expired.');
+        } catch (error) {
+            const failure = new BridgeError(error instanceof BridgeError ? error.code : 'MIDI_SAVE_FAILED',
+                error instanceof Error ? error.message : String(error), inputSent ? 'unknown' : 'not_started');
+            if (inputSent) this.fail(failure);
+            throw failure;
+        } finally {
+            clearTimeout(timer);
+            this.saveBusy = false;
+        }
     }
 
     close(): void {

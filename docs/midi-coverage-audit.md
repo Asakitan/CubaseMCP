@@ -38,3 +38,5 @@ Revision 3.8 adds a guarded DirectAccess edit-lock setter; the 91-test suite pas
 Revision 3.9 adds identity-guarded insert-viewer value and parameter writes for selected and bank channels. These are unverified on the real host and do not complete project creation, editing or persistence.
 
 Revision 3.10 adds the fixed current-project `File/Save` command. It is a single submission, not a parameterized save-as or a completed-persistence API (`docs/project-save-command.md`).
+
+Revision 3.13 uses a prepared single MIDI input on a dedicated minimal Save page and restores the primary page with a new session. A real MCP tempo 146.75 edit, changed CPR and fresh-process semantic reopen were observed on one owned fixture. This concrete chain does not certify creation, named save-as, general editing or every project. See `docs/project-save-chain-28.md`; older uncertain outcomes remain uncertain.

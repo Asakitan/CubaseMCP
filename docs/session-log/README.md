@@ -29,3 +29,4 @@
 | [25](session-25.md) | 2026-11-10 | Inspect CPR framing and a project-path candidate, trace New/Hub and save paths, and test a distinct bank-volume binding. |
 | [26](session-26.md) | 2026-11-10 | Prepare isolated A/B and first-open scaffolds, record device deactivation and a notification without observed recovery, and trace Hub callbacks. |
 | [27](session-27.md) | 2026-11-10 | Re-establish isolated mapping, add guarded insert writes and a fixed Save submission, and observe one unconfirmed Save. |
+| [28](session-28.md) | 2026-11-10 | Real MCP tempo edit/Save/fresh-reopen persistence, Save-observation tool, saved-page startup fix and scoped C cleanup. |

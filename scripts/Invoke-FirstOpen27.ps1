@@ -1,11 +1,12 @@
 [CmdletBinding()]
-param([Parameter(Mandatory)][switch]$ConfirmFirstOpen27,[ValidateSet('default','jump')][string]$Fixture='default')
+param([Parameter(Mandatory)][switch]$ConfirmFirstOpen27,[ValidateSet('default','jump','command28','hold29','minimal30','minimal30reopen','mcp31','mcp31reopen','mcp32','mcp32reopen')][string]$Fixture='default')
 $ErrorActionPreference='Stop'
 if(-not $ConfirmFirstOpen27){throw 'Explicit confirmation required.'}
 $Fixture=$Fixture.ToLowerInvariant()
-$fixtureName=if($Fixture -ceq 'default'){'Binding26Default.cpr'}else{'Binding26Jump.cpr'}
+$fixtureName=switch($Fixture){'default'{'Binding26Default.cpr'}'jump'{'Binding26Jump.cpr'}'command28'{'Command Input 28.cpr'}'hold29'{'Command Hold 29.cpr'}'minimal30'{'Minimal Save 30.cpr'}'minimal30reopen'{'Minimal Save 30.cpr'}'mcp31'{'MCP Save 31.cpr'}'mcp31reopen'{'MCP Save 31.cpr'}'mcp32'{'MCP Save 32.cpr'}'mcp32reopen'{'MCP Save 32.cpr'}}
 $root='E:\VC\CubaseMCP'
 if((Split-Path -Parent $PSScriptRoot) -ine $root){throw 'Unexpected workspace.'}
+. (Join-Path $root 'scripts\Use-WorkspaceTemp.ps1')
 if(Get-Process -Name 'Cubase*' -ErrorAction SilentlyContinue){throw 'Existing Cubase process; no launch.'}
 $run=[guid]::NewGuid().ToString('N'); $dirname="first-project-open-27-$run"; $dir=Join-Path $root "artifacts\$dirname"
 if(Test-Path -LiteralPath $dir){throw 'Run directory exists.'}; [void][IO.Directory]::CreateDirectory($dir)
@@ -60,6 +61,17 @@ function Adapt([string]$source,[string]$destination){
 $cpp=Adapt 'native\bridge\CubaseMcpFirstProjectOpen24.cpp' 'CubaseMcpFirstProjectOpen24.cpp'
 $job=Adapt 'native\FirstProjectJobAudit24.cs' 'FirstProjectJobAudit24.cs'
 $loader=Adapt 'native\FirstProjectOpen24Loader.cs' 'FirstProjectOpen24Loader.cs'
+if($Fixture -in @('minimal30reopen','mcp31reopen','mcp32reopen')){
+    $savedName=switch($Fixture){'minimal30reopen'{'Minimal Saved 30.cpr'}'mcp31reopen'{'MCP Saved 31.cpr'}'mcp32reopen'{'MCP Saved 32.cpr'}}
+    $savedLength=(Get-Item -LiteralPath (Join-Path $root ('artifacts\live-smoke\'+$savedName))).Length
+    if($savedLength -lt 1000 -or $savedLength -gt 16777216){throw 'Saved fixture exceeds the bounded profile.'}
+    $loaderText=[IO.File]::ReadAllText($loader)
+    foreach($marker in @('MCP Device Test 20261110.cpr','expected.Length != 93085')){
+        if([regex]::Matches($loaderText,[regex]::Escape($marker)).Count -ne 1){throw 'Saved-fixture loader marker mismatch.'}
+    }
+    $loaderText=$loaderText.Replace('MCP Device Test 20261110.cpr',$savedName).Replace('expected.Length != 93085',('expected.Length != '+$savedLength))
+    [IO.File]::WriteAllText($loader,$loaderText,[Text.UTF8Encoding]::new($false))
+}
 $preflight=Adapt 'scripts\Read-FirstProjectState24.ps1' 'Read-FirstProjectState24.ps1'
 $observer=Adapt 'scripts\Observe-FirstProjectOpen24.ps1' 'Observe-FirstProjectOpen24.ps1'
 $invoke=Adapt 'scripts\Invoke-FirstProjectOpen24.ps1' 'Invoke-FirstProjectOpen24.ps1'

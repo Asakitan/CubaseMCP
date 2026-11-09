@@ -3,17 +3,17 @@
 | Source | Runtime target | Status |
 | --- | --- | --- |
 | `src/config.ts` | `dist/src/config.js` | Literal policy parser verified |
-| `src/server.ts` | `dist/src/server.js` | 24 tools; 3.10 bridge gate, guarded insert-viewer schema and fixed current-project Save submission |
+| `src/server.ts` | `dist/src/server.js` | 25 tools; 3.13 bridge gate, prepared fixed Save and caller-path file observation |
 | `src/bridge-contract.ts` | `dist/src/bridge-contract.js` | Shared host/revision/active-session gate; operational readiness is explicit |
 | `src/doctor.ts` | `dist/src/doctor.js` | Reports operational readiness separately from handshake availability |
-| `src/midi.ts` | `dist/src/midi.js` | 15 tests passed; exact ports, deadline and fault latch |
+| `src/midi.ts` | `dist/src/midi.js` | Exact ports, deadlines, fault latch and prepared Save input/release/return; focused tests passed |
 | `remote/protocol.js` | Driver folder and `dist/remote/protocol.js` | 2 protocol tests passed |
-| `remote/controller.js` | Driver folder | Coverage 3.10 installed and active in the current isolated process; insert-viewer writes and two earlier control-binding submissions remain unverified |
+| `remote/controller.js` | Driver folder | Coverage 3.13 installed and active; minimal Save page and initial-tempo handoff; other controls are not blanket live-certified |
 | `remote/CubaseAI_MCP.js` | Driver entry | Top-level CommonJS export removed; ES5 regression passed and current host logged controller construction |
-| `remote/commands.js` | Driver command allowlist | 4 fixed bindings including current-project Save; one Save submission did not show fixture change |
+| `remote/commands.js` | Driver command allowlist | 4 fixed bindings; distinct current-project Save and fresh-reopen tempo persistence observed; earlier outcomes preserved |
 | `scripts/Install-Remote.ps1` | Local driver installation | Four files deployed; no Cubase launch |
 | `.vscode/mcp.json` | VS Code stdio server | Configured against built entry |
-| `.vscode/tasks.json` | Build/test/install/live-diagnostic tasks | Full 3.9 suite passed 109 tests; 3.10 build and focused Save checks passed, with a live unconfirmed Save submission |
+| `.vscode/tasks.json` | Build/test/install/live-diagnostic tasks | Historical 3.9 full suite 109/109; current build, focused Save checks and concrete real MCP persistence chain passed |
 | `scripts/Install-Midi.ps1` | Installed loopMIDI/virtualMIDI driver | Explicit installation completed |
 | `native/MidiPortHost.cs` | Hidden PowerShell port process | Real SysEx loopbacks and client-PID query tested |
 | `scripts/Start-MidiPorts.ps1` | Two exact-name virtual ports | Running with explicit stop and correlated one-shot client inspection |
@@ -108,12 +108,17 @@
 | `native/ActivationClone23Target.cpp`, `scripts/Build-ActivationClone23Target.ps1`, `scripts/Invoke-ActivationClone23Target.ps1`, `scripts/project-activation-stack-23-inspect.py`, `docs/project-activation-clone-23-target.md`, `docs/project-activation-stack-23.md` | One-shot fixed-target partial PSS walk | One capture emitted 30 frames before read failure; static predecessors support an OpenFile/prompt path, not completed open |
 | `tests/DesktopJobProbe.cs`, `tests/desktop-job-boundary.ps1`, `docs/background-desktop-job.md` | Restricted desktop job diagnostic | Synthetic job/desktop denial and isolated Cubase starts observed, including detached holder; no continuous foreground proof |
 | `tests/DetachedHolderProbe.ps1`, `tests/DetachedHolderStarter.ps1`, `tests/detached-holder-pipe.ps1` | Detached holder pipe check | Synthetic long-lived holder closes caller pipes; existing-instance guard also passed |
-| `docs/project-save-command.md` | Fixed Save binding contract | Installed example confirmed; noninteractive and completed save unverified |
+| `docs/project-save-command.md` | Fixed Save binding contract | Prepared minimal-page input; one owned real MCP save/fresh-reopen tempo chain observed; no general save-as |
 | `native/bridge/CubaseMcpProjectOpenProbe19.cpp`, `native/ProjectOpenProbe19Loader.cs`, `native/ProjectOpenJobAudit19.cs`, `scripts/*ProjectOpenProbe19.ps1` | Fixed isolated open diagnostic | One submission returned 0; moved-project dialog appeared, outcome unknown and no replay |
 | `scripts/Observe-ProjectOpen19.ps1`, `docs/project-open-observer-19.md` | Bounded background observer | 546 polling samples, private dialog observed; transient events can be missed |
 | `scripts/project-moved-prompt-19-inspect.py`, `docs/project-moved-prompt-19.md` | Moved-project prompt follow-up | Fixed-build path-comparison and parameter branches traced; no prompt-free lifecycle established |
 | `native/bridge/CubaseMcpProjectOpenProbe20.cpp`, `native/ProjectOpenProbe20Loader.cs`, `native/ProjectOpenJobAudit20.cs`, `scripts/*ProjectOpenProbe20.ps1`, `scripts/Observe-ProjectOpen20.ps1`, `scripts/Prepare-ProjectOpen20Fixture.ps1`, `docs/project-open-probe-20.md` | Fixed same-directory isolated open diagnostic | One submission returned 0; private project-activation prompt appeared, outcome unknown and no replay |
 | `scripts/Read-ProjectWindowControllers20.ps1`, `docs/project-window-controller-20.md`, `docs/project-activation-prompt-20.md` | Read-only window inventory and prompt research | Three unlocked list entries observed; prompt translation reference located, display branch unknown |
+| `src/save-observer.ts`, `tests/save-observer.test.cjs`, `docs/project-save-tool.md` | Existing caller-confirmed CPR observation after one MIDI Save | New 25th tool; preflight, changed-stable, unchanged and no-replay branches passed focused in-memory MCP check; wrapper not separately live-certified |
+| `diagnostics/minimal-save30/`, `scripts/verify-minimal-save30.cjs` | Fixed one-button Save diagnostic | 137.5 saved and read after fresh reopen; not a production backend |
+| `scripts/Invoke-MinimalSave30.ps1`, `scripts/verify-mcp-save31.cjs`, `docs/project-save-chain-28.md` | Owned lifetime-bound real MCP Save/reopen observation | Profile 32: 146.75, changed CPR and fresh 3.13 reopen readback; no replay |
+| `scripts/Prepare-CommandInput28.ps1`, `scripts/Invoke-CommandInput28.ps1`, `scripts/verify-command-input28.cjs`, `scripts/Invoke-CommandHold29.ps1`, `scripts/verify-command-hold29.cjs` | Historical fixed physical-input experiments | Large-page short and held input attempts did not establish Save; consumed admissions retained |
+| `scripts/Use-WorkspaceTemp.ps1` | Task-child process temporary directory on E | Used by owned launch/diagnostic wrappers; C cleanup manifest retains 12 moved file records |
 
 ## Update Log
 
@@ -147,3 +152,4 @@
 | 2026-11-10 | Added read-only CPR envelope and project-path diagnostics, traced New/Hub and save-path branches, and observed a second distinct unconfirmed bank-volume control submission. |
 | 2026-11-10 | Prepared a fixed MIDI binding A/B controller, fixture and non-admitting first-open scaffolds; recorded deactivation and one unconfirmed device notification; traced further Hub callback branches. |
 | 2026-11-10 | Restored the mapping in fresh isolated lifetimes, added guarded insert-viewer writes and fixed Save submission, and observed one unconfirmed Save on a disposable fixture. |
+| 2026-11-10 | Session 28: prepared minimal-page Save, real MCP 146.75 edit/file-write/fresh-reopen persistence, 25th Save-observation tool, saved-page startup fix and 12 task C files archived to E. |

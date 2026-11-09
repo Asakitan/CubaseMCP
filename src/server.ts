@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { loadConfig, type Configuration } from './config.js';
 import { BridgeError, MidiClient } from './midi.js';
 import { inspectBridge, verifyBridge } from './bridge-contract.js';
+import { saveProjectObserved } from './save-observer.js';
 
 export const constraints = {
     backend: 'midi',
@@ -69,7 +70,9 @@ export function createServer(config: Configuration = loadConfig()) {
                 const requestArgs = args as Record<string, unknown>;
                 if (operation === 'bridge.status') return result(await readStatus(context.mcpReq.signal));
                 verifyBridge(await readStatus(context.mcpReq.signal), requestArgs.session);
-                const data = await client.request(operation, requestArgs, context.mcpReq.signal);
+                const data = operation === 'commands.execute' && requestArgs.key === 'project.save'
+                    ? await client.executeSave(requestArgs, context.mcpReq.signal)
+                    : await client.request(operation, requestArgs, context.mcpReq.signal);
                 return result(data);
             } catch (error) {
                 return failure(error);
@@ -127,7 +130,7 @@ export function createServer(config: Configuration = loadConfig()) {
         locator: z.enum(['cursor', 'cycleLeft', 'cycleRight']), time: z.string().min(1).max(64)
     }, false);
     expose('cubase_commands_list', 'commands.list', 'List the small fixed background command allowlist and live canPerform state. This is not the complete Cubase menu.', session);
-    expose('cubase_command_execute', 'commands.execute', 'Execute a declared command once, only when canPerform succeeds. Contextual commands use the current selection or active project. project.save submits Cubase File/Save for the current project; the host determines its destination and may request input, and submission does not prove persistence. No foreground selection is performed.', {
+    expose('cubase_command_execute', 'commands.execute', 'Execute a declared command once, only when canPerform succeeds. project.save uses one prepared MIDI input on its internal Save mapping page, observes its binding, releases it and returns to the primary page. Use the returned new session for subsequent discovery. The receipt is submission, not disk completion; destination and interaction remain host-controlled. No foreground selection is performed.', {
         ...session, key: z.string().min(1).max(100), confirmCurrentSelection: z.literal(true)
     }, false);
     expose('cubase_selected_track', 'track.current', 'Read the current selected channel runtime ID and unique ID directly from Cubase. Use them to guard track controls and navigation.', session);
@@ -135,6 +138,20 @@ export function createServer(config: Configuration = loadConfig()) {
         ...session, direction: z.enum(['previous', 'next']), expectedUniqueId: z.string().min(1).max(512),
         expectedRuntimeId: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional()
     }, false);
+
+    server.registerTool('cubase_project_save', {
+        description: 'Submit current-project Save exactly once through MIDI and observe changed, stable bytes at a caller-confirmed existing CPR path (12 bytes to 64 MiB, no links). This does not select a path or perform save-as. file.state=changed_stable is observed content change, not semantic reopen or an atomic document/flush guarantee. Use save.session as the new session. An unchanged file is change_not_observed, never claimed saved.',
+        inputSchema: z.object({ ...session, projectPath: z.string().min(1).max(1024),
+            confirmCurrentProjectPath: z.literal(true), observationTimeoutMs: z.number().int().min(500).max(30000).default(5000) }).strict(),
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+    }, async (args, context) => {
+        try {
+            verifyBridge(await readStatus(context.mcpReq.signal), args.session);
+            return result(await saveProjectObserved(args.projectPath, args.observationTimeoutMs,
+                () => client.executeSave({ session: args.session, key: 'project.save', confirmCurrentSelection: true }, context.mcpReq.signal),
+                context.mcpReq.signal));
+        } catch (error) { return failure(error); }
+    });
 
     server.registerTool('cubase_ports', {
         description: 'Enumerate real Windows MIDI ports without opening a connection. Missing configured ports are not replaced with another device.',

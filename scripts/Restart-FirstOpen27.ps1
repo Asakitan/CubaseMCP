@@ -1,11 +1,13 @@
 [CmdletBinding()]
-param([Parameter(Mandatory)][switch]$ConfirmOwnedRestart,[ValidateSet('default','jump')][string]$Fixture='default')
+param([Parameter(Mandatory)][switch]$ConfirmOwnedRestart,[ValidateSet('default','jump','command28','hold29','minimal30','minimal30reopen','mcp31','mcp31reopen','mcp32','mcp32reopen')][string]$Fixture='default')
 $ErrorActionPreference='Stop'
 if(-not $ConfirmOwnedRestart){throw 'Explicit owned-restart confirmation is required.'}
 $Fixture=$Fixture.ToLowerInvariant()
-$fixtureName=if($Fixture -ceq 'default'){'Binding26Default.cpr'}else{'Binding26Jump.cpr'}
+$fixtureName=switch($Fixture){'default'{'Binding26Default.cpr'}'jump'{'Binding26Jump.cpr'}'command28'{'Command Input 28.cpr'}'hold29'{'Command Hold 29.cpr'}'minimal30'{'Minimal Save 30.cpr'}'minimal30reopen'{'Minimal Save 30.cpr'}'mcp31'{'MCP Save 31.cpr'}'mcp31reopen'{'MCP Save 31.cpr'}'mcp32'{'MCP Save 32.cpr'}'mcp32reopen'{'MCP Save 32.cpr'}}
+$diagnosticDirectory=switch($Fixture){'command28'{'command-input-28'}'hold29'{'command-input-28'}'minimal30'{'minimal-save30'}'minimal30reopen'{'minimal-save30'}default{$null}}
 $root='E:\VC\CubaseMCP'
 if((Split-Path -Parent $PSScriptRoot) -ine $root){throw 'Unexpected workspace.'}
+. (Join-Path $root 'scripts\Use-WorkspaceTemp.ps1')
 $receipt=Get-Content -LiteralPath (Join-Path $root 'artifacts\runtime\cubase-launch.json') -Raw -Encoding UTF8|ConvertFrom-Json
 if($receipt.status -cne 'process_created' -or $receipt.mode -cne 'empty' -or $null -ne $receipt.Project -or
     $receipt.Desktop -cne 'winsta0\CubaseAI_MCP' -or -not $receipt.desktopSwitchRestricted -or -not $receipt.jobKillsOnLastHandleClose){throw 'Owned empty-launch receipt mismatch.'}
@@ -41,14 +43,22 @@ public static class Restart27ProcessExit {
     $method=[CubaseAiMcp.CubaseDesktop].GetMethod('InputDesktopName',[Reflection.BindingFlags]'NonPublic,Static')
     if($method.Invoke($null,@()) -ieq 'CubaseAI_MCP' -or
         -not @([CubaseAiMcp.CubaseDesktop]::Inspect('CubaseAI_MCP')|Where-Object {$_.ProcessId -eq $targetId}).Count){throw 'Private desktop state mismatch.'}
-    $source=Join-Path $root 'artifacts\live-smoke\MCP Device Test 20261110.cpr'
+    $sourceName=switch($Fixture){'minimal30reopen'{'Minimal Saved 30.cpr'}'mcp31reopen'{'MCP Saved 31.cpr'}'mcp32reopen'{'MCP Saved 32.cpr'}default{'MCP Device Test 20261110.cpr'}}
+    $source=Join-Path $root ('artifacts\live-smoke\'+$sourceName)
     $fixturePath=Join-Path $root ('artifacts\live-smoke\'+$fixtureName)
     foreach($path in @($source,$fixturePath)){
         if(([IO.File]::GetAttributes($path) -band ([IO.FileAttributes]::ReparsePoint -bor [IO.FileAttributes]::Directory)) -ne 0){throw 'Fixture path mismatch.'}
     }
     $a=[IO.File]::ReadAllBytes($source); $b=[IO.File]::ReadAllBytes($fixturePath)
-    if($a.Length -ne 93085 -or $b.Length -ne $a.Length){throw 'Fixture size mismatch.'}
+    $expectedLength=if($Fixture -in @('minimal30reopen','mcp31reopen','mcp32reopen')){$a.Length}else{93085}
+    if($expectedLength -lt 1000 -or $expectedLength -gt 16777216){throw 'Fixture exceeds the bounded profile.'}
+    if($a.Length -ne $expectedLength -or $b.Length -ne $a.Length){throw 'Fixture size mismatch.'}
     for($i=0;$i -lt $a.Length;$i++){if($a[$i] -ne $b[$i]){throw 'Fixture contents differ.'}}
+    if($diagnosticDirectory){
+        foreach($name in @('CubaseAI_MCP.js','controller.js','commands.js','protocol.js')){
+            if(-not (Test-Path -LiteralPath (Join-Path $root ('artifacts\'+$diagnosticDirectory+'\'+$name)) -PathType Leaf)){throw 'Prepared diagnostic is missing.'}
+        }
+    }
     $run=[Guid]::NewGuid().ToString('N');$backup=Join-Path $root "artifacts\runtime\before-restart-27-$run"
     if(Test-Path -LiteralPath $backup){throw 'Backup directory already exists.'};[void][IO.Directory]::CreateDirectory($backup)
     $driver=Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Steinberg\Cubase\MIDI Remote\Driver Scripts\Local\CubaseAI\MCP'
@@ -58,6 +68,7 @@ public static class Restart27ProcessExit {
     foreach($name in @('First Empty Probe 24.cpr','Binding26Default.cpr','Binding26Jump.cpr')){
         [IO.File]::Copy((Join-Path $root ('artifacts\live-smoke\'+$name)),(Join-Path $backup $name),$false)
     }
+    if($diagnosticDirectory -or $Fixture -in @('mcp31','mcp31reopen','mcp32','mcp32reopen')){[IO.File]::Copy($fixturePath,(Join-Path $backup $fixtureName),$false)}
     [IO.File]::Copy((Join-Path $root 'artifacts\runtime\cubase-launch.json'),(Join-Path $backup 'cubase-launch.json'),$false)
     $admission=Join-Path $root "artifacts\runtime\restart-27-$targetId-$targetFt.json"
     $record=[ordered]@{runId=$run;targetPid=$targetId;targetCreationFiletime=[string]$targetFt;holderPid=$holderId;holderCreationFiletime=[string]$holderFt;backup=$backup;status='consumed';createdUtc=[DateTime]::UtcNow.ToString('o')}|ConvertTo-Json
@@ -74,7 +85,13 @@ public static class Restart27ProcessExit {
             $item.LastWriteTimeUtc -lt $targetStart){throw 'Unexpected startup marker; preserved in place.'}
         Move-Item -LiteralPath $marker -Destination (Join-Path $backup 'ApplicationStarted.txt')
     }
-    & (Join-Path $root 'scripts\Install-Remote.ps1') -Force | Out-Null
+    if($diagnosticDirectory){
+        foreach($name in @('CubaseAI_MCP.js','controller.js','commands.js','protocol.js')){
+            $prepared=Join-Path $root ('artifacts\'+$diagnosticDirectory+'\'+$name);$installed=Join-Path $driver $name
+            [IO.File]::Copy($prepared,$installed,$true)
+            if([IO.File]::ReadAllText($prepared) -cne [IO.File]::ReadAllText($installed)){throw 'Diagnostic installation mismatch.'}
+        }
+    }else{& (Join-Path $root 'scripts\Install-Remote.ps1') -Force | Out-Null}
     $ps=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     $output=Join-Path $backup 'first-open.stdout.log';$errors=Join-Path $backup 'first-open.stderr.log'
     $worker=Start-Process -FilePath $ps -ArgumentList @('-NoProfile','-NonInteractive','-File',(Join-Path $root 'scripts\Invoke-FirstOpen27.ps1'),'-ConfirmFirstOpen27','-Fixture',$Fixture) -WindowStyle Hidden -PassThru -RedirectStandardOutput $output -RedirectStandardError $errors

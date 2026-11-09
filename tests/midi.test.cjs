@@ -95,6 +95,44 @@ async function withNative(driver, action) {
     finally { Module._load = original; }
 }
 
+test('Save uses one validated input and releases only after a binding observation', async () => {
+    const { state, driver } = native(), client = new MidiClient(options, driver);
+    const operation = client.executeSave({ session: 'save-session', key: 'project.save', confirmCurrentSelection: true });
+    const token = state.requests[0].id;
+    assert.equal(state.requests[0].op, 'commands.prepare');
+    reply(state, 0, { ok: true, data: { originSession: 'save-session', session: 'save-page-session', key: 'project.save', token,
+        inputDeadline: state.requests[0].args.inputDeadline, execution: 'prepared_not_submitted' } });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(state.frames.filter(frame => frame.length === 3), [[144, 1, 127]]);
+    assert.equal(state.requests[1].op, 'commands.result');
+    reply(state, 1, { ok: true, data: { session: 'save-page-session', token, execution: 'submitted', bindingObserved: true, inputReleased: true } });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(state.requests[2].op, 'commands.finish');
+    reply(state, 2, { ok: true, data: { session: 'returned-session', token, execution: 'submitted', bindingObserved: true, returnedToMain: true } });
+    assert.equal((await operation).execution, 'submitted');
+    assert.deepEqual(state.frames.filter(frame => frame.length === 3), [[144, 1, 127], [128, 1, 0]]);
+    client.close(); released(state);
+});
+
+test('Save rejects a changed preparation before input and never repeats an unobserved press', async () => {
+    const first = native(), invalid = new MidiClient(options, first.driver);
+    const rejected = invalid.executeSave({ session: 's', key: 'project.save', confirmCurrentSelection: true });
+    reply(first.state, 0, { ok: true, data: { originSession: 'other', session: 'save', key: 'project.save', token: first.state.requests[0].id,
+        inputDeadline: Date.now() + 1000, execution: 'prepared_not_submitted' } });
+    await assert.rejects(rejected, { execution: 'not_started' });
+    assert.equal(first.state.frames.some(frame => frame.length === 3), false);
+    invalid.close();
+    const second = native(), timeout = new MidiClient({ ...options, timeoutMs: 40 }, second.driver);
+    const pending = timeout.executeSave({ session: 's', key: 'project.save', confirmCurrentSelection: true });
+    const token = second.state.requests[0].id;
+    reply(second.state, 0, { ok: true, data: { originSession: 's', session: 'save', key: 'project.save', token,
+        inputDeadline: second.state.requests[0].args.inputDeadline, execution: 'prepared_not_submitted' } });
+    await assert.rejects(pending, { execution: 'unknown' });
+    assert.deepEqual(second.state.frames.filter(frame => frame.length === 3), [[144, 1, 127]]);
+    await assert.rejects(timeout.request('probe'), { code: 'MIDI_FAULTED' });
+    released(second.state);
+});
+
 test('lazy exact selection enables SysEx and opens each configured port only once', async () => {
     const { state, driver } = native({
         inputNames: ['Other input', DEFAULT_INPUT, `${DEFAULT_INPUT} extra`],
