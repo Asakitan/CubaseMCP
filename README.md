@@ -8,7 +8,7 @@ Windows 本地 MCP，使用单一 MIDI Remote 后台通道控制 Cubase 16。参
 - 只有 `midi` 后端；无 mock、UI、其他适配器或协议 fallback。
 - 指定端口不存在、对象失效、API 缺失、命令不可执行时直接返回错误。
 - 超时或取消后的修改可能已被 Cubase 接收，结果记为 `unknown`；不重试、不重放。重新连接必须显式调用工具。
-- 当前 MIDI 后端尚未实现工程创建、存储、编辑和参数化导出；完整目标仍在进行，新增能力必须以实际 Cubase 结果验收。
+- 当前后端支持提交当前工程的固定保存命令，但参数化工程创建、另存为、事件编辑、保存完成确认和参数化导出仍未实现；完整目标仍在进行，新增能力必须以实际 Cubase 结果验收。
 
 ## 安装和启动
 
@@ -50,9 +50,13 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 3. 带同一 `session`、`root`、`objectId` 和 `tag` 调用 `cubase_parameter_set`；可指定 normalized、plain 或 display 格式。
 4. 读回确认修改。`submitted` 只表示已经提交，不等于操作已完成。
 
+当前工程保存可通过 `cubase_command_execute` 提交 `key: "project.save"`，并携带当前 `session` 和 `confirmCurrentSelection: true`。目标路径由 Cubase 当前工程决定；这不是带路径的另存为，也没有保存完成回调。若请求超时或目标文件未出现可确认变化，结果保持未确认，不自动重发。
+
 共 24 个 MCP 工具。单参数及单控制项查询、参数编辑锁、所选轨道身份和前后导航、混音通道位置、速度和时间显示反馈，以及宿主版本和功能上限查询均有明确会话约束。`cubase_parameter_edit_lock_set` 需要已观察的参数和匹配的 `expectedLocked`，回执表示已提交；使用 `cubase_parameter_get` 读取后续状态。已选轨控制包括四段 EQ、前级滤波、发送、乐器槽、五类通道条效果及其参数页、自动化和只读电平表；发送槽数量按宿主返回值确定，可用性以实际返回为准。`cubase_control_set` 可同时传入 `expectedTrackUniqueId` 和 `expectedTrackRuntimeId` 检查选中通道；`cubase_track_navigate` 可传入 `expectedRuntimeId`，两个运行时 ID 均来自 `cubase_selected_track`。这些检查不是与宿主状态原子绑定的事务。插件替换要求 `confirmReplacement:true`，当前选择命令要求 `confirmCurrentSelection:true`。另有 Control Room 及固定混音器银行操作；声明存在不等于 AI 版本实际开放了相应功能。菜单执行仅限固定清单。
 
 `cubase_status` 返回紧凑握手，不再内嵌完整对象和控制表。`cubase_controls_list` 的控制和分组分别分页，按 `nextOffset`、`nextGroupOffset` 获取全部项目；`cubase_transport_get` 提供速度与定位器的可用性和实际反馈。长身份标识原样保留，描述性元数据有长度上限。
+
+从版本 3.9 起，已选轨道及混音器银行的插入效果查看器支持提交开启、旁路、自动化和参数写入。调用前通过 `cubase_control_get` 取得完整插件身份，并在 `cubase_control_set` 中传入该身份和当前轨道或银行通道身份；这些检查不是原子事务，提交后仍需独立读回。这些新增写入的实际 Cubase 效果尚待验证，见 [插入效果查看器](docs/midi-insert-viewer.md)。
 
 轨道控制的过程值和显示值来自宿主反馈，尚未收到反馈时为 `null`；切换轨道会撤销上一轨缓存。速度和时间显示也只返回本次活动映射收到的回调，不推测未反馈的值。
 
@@ -66,9 +70,9 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 
 ## 验证状态
 
-本轮 TypeScript 构建通过，测试 **109/109** 通过；先前的临时虚拟端口客户端 PID 检查也已通过。统一版本门禁覆盖全部 20 个带会话的宿主操作，诊断命令将端口和握手状态与实际操作就绪状态分开报告。
+3.9 的 TypeScript 构建与完整测试 **109/109** 通过；加入 3.10 固定保存命令后重新构建，并通过与该命令有关的 3 项定向检查。统一版本门禁覆盖全部 20 个带会话的宿主操作，诊断命令将端口和握手状态与实际操作就绪状态分开报告。
 
-控制器 `2026-11-10-coverage-3.8` 已安装并读回核对，之前的四个安装文件已备份。隔离进程曾记录设备和映射激活，并通过真实 MCP 状态、对象发现、钢琴轨参数读取和控制反馈读取。临时测试端口创建和关闭后，日志记录设备停用，一次新的状态请求返回 `MIDI_TIMEOUT`、结果为 `unknown`，该请求没有重放。操作系统端口仍存在不等于当前 MCP 映射已恢复。
+控制器 `2026-11-10-coverage-3.10` 已安装；当前隔离进程通过真实 MCP 完成参数写入和读回，也提交了一次固定保存命令。此前 3.8 曾记录设备和映射激活；临时测试端口变化后一次状态请求超时，旧请求没有重放，后续通过新的隔离进程恢复了映射。
 
 3.7 新增已选通道仪器槽以及混音银行通道仪器槽、通道条效果的参数银行控制。调用 `cubase_control_get` 读取完整 `pluginIdentity`，写入时原样传入 `expectedPluginIdentity`，并附带对应通道身份；回调和宿主状态并非原子绑定，提交回执仍需后续宿主反馈确认。详见 [插件参数银行](docs/midi-plugin-banks-3.7.md)。
 
@@ -76,7 +80,7 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 
 较早的 `artifacts/live-smoke/verification.json` 记录了真实 Cubase AI 16.0.5 的发现、参数、反馈和音量写入恢复；它不证明本轮新增控制项、工程存储或完整功能覆盖。新版 `verify:live` 脚本要求当前控制器，旧记录与本轮实机验收分别记录。详细状态见 [STATUS](STATUS.md)。
 
-**当前状态（第 26 轮）**：3.8 曾通过真实 MCP 读取，一项 Stereo Out DirectAccess 参数与编辑锁的写入、恢复均已读回。分别针对钢琴轨和 Stereo Out 银行通道的两次独立控制绑定写入均已提交，但目标值尚未读到，均未重放。临时测试端口变化后控制器记录设备停用，后续状态请求超时；一次固定设备通知已送达，但后续日志尚未观察到重新激活，当前映射仍待恢复。新的独立 A/B 控制器与两个磁盘副本已准备，尚未实机执行，也不代表工程创建。只读快照将唯一工程根关联到测试副本路径；CPR 外层检查不证明工程内容或保存完成。创建、存储、事件编辑与完整功能覆盖仍在进行。详见 [A/B 实验](docs/binding-ab-26.md)、[端口证据](docs/binding-test-ports-26.md) 与 [工程路径和保存调查](docs/project-save-25.md)。
+**当前状态（第 27 轮）**：新的隔离实例恢复了后台映射；3.10 对独立测试副本的一项参数写入已读回。固定 `project.save` 命令已提交一次，但目标文件在 12 秒观察窗口内未变化，保存结果尚未确认。此前钢琴轨和 Stereo Out 银行通道的两次控制绑定写入也尚未确认，均未重放。工程创建、可靠存储、事件编辑与完整功能覆盖仍在进行。详见 [首开与映射](docs/first-open-27.md)、[保存实验](docs/project-save-27.md) 和 [A/B 实验](docs/binding-ab-26.md)。
 
 ## 原生项目接口调查
 

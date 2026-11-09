@@ -12,14 +12,14 @@ This audit compares the bridge to the installed Cubase 16.0.5 declaration file `
 | Selected channel strip | On, bypass, automation, callback identity, eight parameter-bank values and previous/next/reset actions for the five declared strip slots | Missing branches report unavailable; identity callbacks are session/track scoped and edit-window controls are omitted. |
 | Control Room | Root/main/indexed values, source selectors and momentary next-downmix control | Host maxima are limits, not configured channel counts. Indexed channels share a 16-channel budget and selectors share a 64-value budget; oversized groups fail without partial admission. |
 | Mixer bank | Eight fixed bank positions with core/selection, pre-filter, EQ, sends, cue sends, quick controls, instrument and strip values and parameter banks, plus read-only aggregate meters; fixed previous/next/shift/reset actions | Writes require a previously observed and currently matching channel identity; new plug-in banks also require the exact observed identity. Action submission does not prove a bank position. See `docs/midi-mixer-bank.md`. |
-| Insert viewers | Selected-channel and bank-channel all, empty, occupied and bounded index filters; read-only values, identity callbacks and channel-guarded viewer/bank actions | Index filtering and callback attribution remain unverified on a live host; plug-in parameter writes are intentionally withheld. See `docs/midi-insert-viewer.md`. |
+| Insert viewers | Selected-channel and bank-channel all, empty, occupied and bounded index filters; on/bypass/automation and parameter writes guarded by observed channel and plug-in identity, plus viewer/bank actions | Revision 3.9 writes, index filtering and callback attribution remain unverified on a live host; callback metadata is not an atomic plug-in-instance guarantee. See `docs/midi-insert-viewer.md`. |
 | Focused quick controls | Eight bindings and focus lock | Actual availability comes from the host. |
 | Commands | Fixed command bindings only | A performable binding and submission do not prove the desired project state or disk persistence. |
 
 ## Declared but not implemented
 
-- `MR_MixerBankZone` filtering configuration and bank-channel insert-viewer plug-in parameter writes are not bound; mixer DirectAccess discovery remains separate.
-- Insert viewer on/bypass/automation and parameter writes are not exposed; `mEdit` and focus-following are deliberately omitted. DirectAccess support does not imply every viewer is reachable in a particular edition or project.
+- `MR_MixerBankZone` filtering configuration is not bound; mixer DirectAccess discovery remains separate.
+- Insert-viewer `mEdit` and focus-following are deliberately omitted. DirectAccess support does not imply every viewer is reachable in a particular edition or project.
 - `MR_MixerChannelValues.getVUChannelMeterByChannelIndex` and `getVUMeterMaxByChannelIndex` are not bound; aggregate meters are exposed read-only. The inspected declarations provide no corresponding selected-channel meter count, so arbitrary indices are not admitted.
 - Mouse-cursor bindings and editor/plugin open controls are intentionally omitted from the background-only surface.
 
@@ -34,3 +34,7 @@ Revision 3.6 adds optional selected-channel runtime-ID guards and clears selecte
 Revision 3.7 adds selected-instrument and bank-channel instrument/strip parameter pages and guarded navigation. Five focused tests and the 89-test suite passed; installation was verified, but current mapping activation and the new controls are not yet verified in the live host (`docs/midi-plugin-banks-3.7.md`).
 
 Revision 3.8 adds a guarded DirectAccess edit-lock setter; the 91-test suite passed at installation. In session 24 its mapping activated and a Stereo Out DirectAccess volume parameter was written and restored; its edit lock was separately changed and restored with readback. Distinct selected-track and bank-channel volume control writes were not observed at their targets; see `docs/control-binding-25.md`, `docs/first-project-open-24.md` and `docs/midi-parameter-lock-3.8.md`.
+
+Revision 3.9 adds identity-guarded insert-viewer value and parameter writes for selected and bank channels. These are unverified on the real host and do not complete project creation, editing or persistence.
+
+Revision 3.10 adds the fixed current-project `File/Save` command. It is a single submission, not a parameterized save-as or a completed-persistence API (`docs/project-save-command.md`).

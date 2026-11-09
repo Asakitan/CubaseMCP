@@ -50,8 +50,10 @@ try {
         inputDesktopAfter=$result.InputDesktopAfter; desktopSwitchRestricted=$result.DesktopSwitchRestricted;
         jobKillsOnLastHandleClose=$result.JobKillsOnLastHandleClose }
     $receiptPath = Join-Path $Runtime "cubase-empty-launch-24-$id.json"
-    $file = [IO.File]::Open($receiptPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
+    $temporaryReceipt = $receiptPath + '.tmp-' + $PID
+    $file = [IO.File]::Open($temporaryReceipt,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
     try { $data=[Text.UTF8Encoding]::new($false).GetBytes(($receipt | ConvertTo-Json -Compress)); $file.Write($data,0,$data.Length); $file.Flush($true) } finally { $file.Dispose() }
+    [IO.File]::Move($temporaryReceipt,$receiptPath)
     [IO.File]::AppendAllText($out,($receipt | ConvertTo-Json -Compress) + [Environment]::NewLine,[Text.UTF8Encoding]::new($false))
     $exitCode = [CubaseAiMcp.CubaseDesktop]::WaitForExit()
     [IO.File]::AppendAllText($out,"status=exited exitCode=$exitCode$([Environment]::NewLine)",[Text.UTF8Encoding]::new($false))

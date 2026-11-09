@@ -18,7 +18,7 @@ test('large host maxima and error messages preserve compact handshake and bounde
         page.makeValueBinding = () => { throw new Error('unavailable-' + 'x'.repeat(5000)); };
     });
     assert.equal(harness.status.ok, true, JSON.stringify(harness.status));
-    assert.equal(harness.status.data.bridgeRevision, '2026-11-10-coverage-3.8');
+    assert.equal(harness.status.data.bridgeRevision, '2026-11-10-coverage-3.10');
     let offset = 0;
     const keys = [];
     do {
@@ -93,7 +93,7 @@ test('long track identifiers remain exact in paged groups and error details', ()
     assert.equal(mismatch.error.details.currentUniqueId, uniqueId);
 });
 
-test('insert viewers use fixed filters, read-only values and track-guarded navigation', () => {
+test('insert viewers use fixed filters and identity-guarded values and navigation', () => {
     const viewers = {}, filters = [];
     const harness = fixture((api, state, { host }) => {
         api.mDefaults.getNumberOfInsertEffectSlots = () => 2;
@@ -112,14 +112,25 @@ test('insert viewers use fixed filters, read-only values and track-guarded navig
         ['CubaseAI MCP slot.0', 'slot', 0], ['CubaseAI MCP slot.1', 'slot', 1]]);
     for (const group of ['all', 'empty', 'occupied', 'slot.0', 'slot.1']) {
         const key = `track.insert.${group}.parameter.0`;
-        assert.equal(harness.call('controls.get', { key }).data.control.readOnly, true);
-        expectError(harness.call('controls.set', { key, value: 0.5 }), 'READ_ONLY');
+        assert.equal(harness.call('controls.get', { key }).data.control.readOnly, false);
+        expectError(harness.call('controls.set', { key, value: 0.5 }), 'CONFIRMATION_REQUIRED');
         expectError(harness.call('controls.get', { key: `track.insert.${group}.edit` }), 'INVALID_CONTROL');
     }
     expectError(harness.call('controls.set', { key: 'track.insert.slot.0.bank.next', value: 1 }), 'CONFIRMATION_REQUIRED');
     expectError(harness.call('controls.set', { key: 'track.insert.slot.0.bank.next', value: 1, expectedTrackUniqueId: 'wrong' }), 'TRACK_CHANGED');
     assert.equal(harness.call('controls.set', { key: 'track.insert.slot.0.bank.next', value: 1,
         expectedTrackUniqueId: 'track-uid-2' }).data.execution, 'submitted');
+    viewers['CubaseAI MCP slot.0'].mOnChangePluginIdentity(harness.device, harness.currentMapping(), 'Plugin', 'Vendor', '1', '3');
+    const identity = { name: 'Plugin', vendor: 'Vendor', version: '1', formatVersion: '3' };
+    const guard = { expectedTrackUniqueId: 'track-uid-2', expectedTrackRuntimeId: 2, expectedPluginIdentity: identity };
+    expectError(harness.call('controls.set', { key: 'track.insert.slot.0.on', value: 1,
+        ...guard, expectedPluginIdentity: { ...identity, name: 'other' } }), 'PLUGIN_CHANGED');
+    for (const key of ['track.insert.slot.0.on', 'track.insert.slot.0.parameter.0']) {
+        assert.deepEqual(harness.call('controls.get', { key }).data.control.pluginIdentity, identity);
+        assert.equal(harness.call('controls.set', { key, value: 0.5, ...guard }).data.execution, 'submitted');
+    }
+    viewers['CubaseAI MCP slot.0'].mOnChangePluginIdentity(harness.device, harness.currentMapping(), null, 'Vendor', '1', '3');
+    expectError(harness.call('controls.set', { key: 'track.insert.slot.0.on', value: 1, ...guard }), 'PLUGIN_UNOBSERVED');
     viewers['CubaseAI MCP slot.0'].mOnChangePluginIdentity(harness.device, harness.currentMapping(), 'Plugin', 'Vendor', '1', '3');
     assert.equal(listAll(harness).groups['track.insert.slot.0'].pluginIdentity.trackUniqueId, 'track-uid-2');
     harness.state.selectedTrackId = 'new-track';
@@ -402,7 +413,7 @@ test('nested bank groups report missing channel identity instead of branch readi
     assert.equal(group.channel.uniqueId, null);
 });
 
-test('bank insert viewers are read-only and navigation invalidates channel and plugin observations', () => {
+test('bank insert viewers require channel and plugin identities and navigation invalidates observations', () => {
     const ids = Array.from({ length: 8 }, (_, i) => `id-${i}`), viewers = {};
     const harness = fixture((api, state, { host }) => {
         api.mDefaults.getNumberOfInsertEffectSlots = () => 1;
@@ -424,9 +435,11 @@ test('bank insert viewers are read-only and navigation invalidates channel and p
     });
     const group = 'mixer.channel.0.insert.slot.0', key = group + '.on';
     const viewer = viewers['CubaseAI MCP bank 0 slot.0'];
-    assert.equal(harness.call('controls.get', { key }).data.control.readOnly, true);
-    expectError(harness.call('controls.set', { key, value: 1, expectedChannelUniqueId: ids[0] }), 'READ_ONLY');
-    expectError(harness.call('controls.set', { key: group + '.parameter.0', value: 1, expectedChannelUniqueId: ids[0] }), 'READ_ONLY');
+    assert.equal(harness.call('controls.get', { key }).data.control.readOnly, false);
+    expectError(harness.call('controls.set', { key, value: 1, expectedChannelUniqueId: ids[0] }), 'CONFIRMATION_REQUIRED');
+    const a = { name: 'A', vendor: 'V', version: '1', formatVersion: '3' };
+    expectError(harness.call('controls.set', { key: group + '.parameter.0', value: 1,
+        expectedChannelUniqueId: ids[0], expectedPluginIdentity: a }), 'PLUGIN_UNOBSERVED');
     viewer.mOnChangePluginIdentity(harness.device, harness.currentMapping(), 'A', 'V', '1', '3');
     viewer.mOn.mOnProcessValueChange(harness.device, harness.currentMapping(), 1);
     viewer.mOnChangePluginIdentity(harness.device, harness.currentMapping(), 'B', 'V', '1', '3');
@@ -434,6 +447,15 @@ test('bank insert viewers are read-only and navigation invalidates channel and p
     viewer.mOnChangePluginIdentity(harness.device, {}, 'Wrong mapping', 'V', '1', '3');
     assert.equal(harness.call('controls.get', { key }).data.control.observed, null);
     assert.equal(listAll(harness).groups[group].pluginIdentity.name, 'B');
+    const b = { ...a, name: 'B' };
+    expectError(harness.call('controls.set', { key, value: 1, expectedChannelUniqueId: ids[0], expectedPluginIdentity: a }), 'PLUGIN_CHANGED');
+    for (const writable of [key, group + '.parameter.0']) {
+        assert.deepEqual(harness.call('controls.get', { key: writable }).data.control.pluginIdentity, b);
+        assert.equal(harness.call('controls.set', { key: writable, value: 0.5,
+            expectedChannelUniqueId: ids[0], expectedPluginIdentity: b }).data.execution, 'submitted');
+    }
+    viewer.mOnChangePluginIdentity(harness.device, harness.currentMapping(), null, 'V', '1', '3');
+    expectError(harness.call('controls.set', { key, value: 1, expectedChannelUniqueId: ids[0], expectedPluginIdentity: b }), 'PLUGIN_UNOBSERVED');
     expectError(harness.call('controls.set', { key: group + '.viewer.next', value: 1 }), 'CONFIRMATION_REQUIRED');
     expectError(harness.call('controls.set', { key: group + '.viewer.next', value: 1, expectedChannelUniqueId: ids[1] }), 'CHANNEL_UNOBSERVED');
     assert.equal(harness.call('controls.set', { key: group + '.viewer.next', value: 1, expectedChannelUniqueId: ids[0] }).data.execution, 'submitted');
@@ -489,7 +511,7 @@ test('bank insert viewer indexed slots remain available on the final bank channe
     const result = harness.call('controls.get', { key }).data.control;
     assert.equal(result.available, true);
     assert.equal(result.channel.uniqueId, 'id-7');
-    assert.equal(result.readOnly, true);
+    assert.equal(result.readOnly, false);
     assert.equal(harness.call('controls.set', { key: 'mixer.channel.7.insert.slot.15.viewer.next', value: 1,
         expectedChannelUniqueId: 'id-7' }).data.execution, 'submitted');
 });
@@ -870,11 +892,12 @@ test('production remote modules parse as ES5', () => {
     assert.equal(typeof require('../remote/controller.js').createController, 'function');
 });
 
-test('command definitions are a fixed non-window allowlist', () => {
+test('command definitions are a fixed allowlist', () => {
     assert.deepEqual(commands.map(command => [command.key, command.category, command.name]), [
         ['edit.undo', 'Edit', 'Undo'],
         ['edit.redo', 'Edit', 'Redo'],
-        ['midi.quantize', 'Quantize Category', 'Quantize']
+        ['midi.quantize', 'Quantize Category', 'Quantize'],
+        ['project.save', 'File', 'Save']
     ]);
     assert.ok(Object.isFrozen(commands));
     assert.ok(commands.every(command => Object.isFrozen(command) && command.context));
@@ -890,7 +913,7 @@ test('factory registers exact ports and reports only real app and root data', ()
     assert.deepEqual(harness.detectionNames, harness.portNames);
     const status = harness.status.data;
     assert.equal(status.appVersion, '16.0.5');
-    assert.equal(status.bridgeRevision, '2026-11-10-coverage-3.8');
+    assert.equal(status.bridgeRevision, '2026-11-10-coverage-3.10');
     assert.deepEqual(status.policy, { backgroundOnly: true, fallback: false });
     assert.equal(status.discovery.controlTotal, 135);
     assert.equal(harness.call('objects.list', { root: 'trackSelection' }).data.baseObject.uniqueIdString, 'uid-1');
@@ -1128,6 +1151,13 @@ test('only confirmed allowlisted commands with canPerform true pulse their bound
     delete harness.state.surfaces['command.edit.redo'].command.canPerform;
     expectError(harness.call('commands.execute', { key: 'edit.redo', confirmCurrentSelection: true }), 'API_UNAVAILABLE');
     assert.equal(harness.commandRuns.length, 1);
+    expectError(harness.call('commands.execute', { key: 'project.save' }), 'CONFIRMATION_REQUIRED');
+    harness.state.commandAllowed = false;
+    expectError(harness.call('commands.execute', { key: 'project.save', confirmCurrentSelection: true }), 'COMMAND_UNAVAILABLE');
+    harness.state.commandAllowed = true;
+    assert.equal(harness.call('commands.execute', { key: 'project.save', confirmCurrentSelection: true }).data.execution, 'submitted');
+    assert.deepEqual(harness.commandRuns, ['Undo', 'Save']);
+    assert.deepEqual(harness.writes.slice(-2).map(write => [write.key, write.value]), [['command.project.save', 1], ['command.project.save', 0]]);
 });
 
 test('missing DirectAccess and wrong app versions fail closed', () => {

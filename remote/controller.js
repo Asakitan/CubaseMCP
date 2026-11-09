@@ -11,7 +11,7 @@ var MAX_OBJECTS = 2048;
 var MAX_TAGS = 8192;
 var MAX_PLUGINS = 8192;
 var MAX_INTEGER = 9007199254740991;
-var BRIDGE_REVISION = '2026-11-10-coverage-3.8';
+var BRIDGE_REVISION = '2026-11-10-coverage-3.10';
 
 function fail(code, message, details, execution) {
     var error = new Error(message);
@@ -1492,17 +1492,23 @@ function createController(api, logger) {
             return;
         }
         makeHostFields(group + '.', path, viewer,
-            [['on', 'mOn'], ['bypass', 'mBypass'], ['automationRead', 'mAutomationRead'], ['automationWrite', 'mAutomationWrite']], true);
+            [['on', 'mOn'], ['bypass', 'mBypass'], ['automationRead', 'mAutomationRead'], ['automationWrite', 'mAutomationWrite']]);
+        ['on', 'bypass', 'automationRead', 'automationWrite'].forEach(function (field) {
+            controls[group + '.' + field].pluginBankGroup = group;
+        });
         try {
             viewer.mOnChangePluginIdentity = function (device, mapping, pluginName, vendor, version, format) {
-                if (device !== activeDevice || mapping !== activeMapping ||
-                    typeof pluginName !== 'string' || typeof vendor !== 'string' || typeof version !== 'string' || typeof format !== 'string' ||
-                    pluginName.length > 4096 || vendor.length > 4096 || version.length > 4096 || format.length > 4096) return;
+                if (!activeDevice || !activeMapping || device !== activeDevice || mapping !== activeMapping) return;
+                if ([pluginName, vendor, version, format].some(function (v) { return typeof v !== 'string' || v.length > 4096; })) {
+                    clearGroupObservation(group);
+                    controlGroups[group].pluginIdentity = null;
+                    return;
+                }
                 try {
                     var current = selectedTrack();
                     clearGroupObservation(group);
                     controlGroups[group].pluginIdentity = { name: pluginName, vendor: vendor, version: version,
-                        formatVersion: format, trackUniqueId: current.uniqueId };
+                        formatVersion: format, trackUniqueId: current.uniqueId, trackRuntimeId: current.runtimeId };
                 } catch (error) { clearTrackObservation(); }
             };
         } catch (error) { controlGroups[group].identityError = errorData(error); }
@@ -1517,7 +1523,8 @@ function createController(api, logger) {
             var value = null, failure = null;
             try { value = invoke(bank, 'makeParameterValue', []); } catch (error) { failure = errorData(error); }
             var key = group + '.parameter.' + i;
-            makeControl(key, path + '.mParameterBankZone.makeParameterValue(' + i + ')', value, false, true);
+            makeControl(key, path + '.mParameterBankZone.makeParameterValue(' + i + ')', value, false);
+            controls[key].pluginBankGroup = group;
             if (failure) controls[key].error = failure;
         }
         [['previous', 'mPrevBank'], ['next', 'mNextBank'], ['reset', 'mResetBank']].forEach(function (entry) {
@@ -1604,12 +1611,18 @@ function createController(api, logger) {
             return;
         }
         makeHostFields(group + '.', path, viewer,
-            [['on', 'mOn'], ['bypass', 'mBypass'], ['automationRead', 'mAutomationRead'], ['automationWrite', 'mAutomationWrite']], true, index);
+            [['on', 'mOn'], ['bypass', 'mBypass'], ['automationRead', 'mAutomationRead'], ['automationWrite', 'mAutomationWrite']], false, index);
+        ['on', 'bypass', 'automationRead', 'automationWrite'].forEach(function (field) {
+            controls[group + '.' + field].pluginBankGroup = group;
+        });
         try {
             viewer.mOnChangePluginIdentity = function (device, mapping, name, vendor, version, format) {
-                if (device !== activeDevice || mapping !== activeMapping ||
-                    typeof name !== 'string' || typeof vendor !== 'string' || typeof version !== 'string' || typeof format !== 'string' ||
-                    name.length > 4096 || vendor.length > 4096 || version.length > 4096 || format.length > 4096) return;
+                if (!activeDevice || !activeMapping || device !== activeDevice || mapping !== activeMapping) return;
+                if ([name, vendor, version, format].some(function (v) { return typeof v !== 'string' || v.length > 4096; })) {
+                    clearGroupObservation(group);
+                    controlGroups[group].pluginIdentity = null;
+                    return;
+                }
                 clearGroupObservation(group);
                 try {
                     var current = bankChannelIdentity(index, false);
@@ -1631,8 +1644,9 @@ function createController(api, logger) {
             var value = null, failure = null;
             try { value = invoke(bank, 'makeParameterValue', []); } catch (error) { failure = errorData(error); }
             var key = group + '.parameter.' + parameter;
-            makeControl(key, path + '.mParameterBankZone.makeParameterValue(' + parameter + ')', value, false, true);
+            makeControl(key, path + '.mParameterBankZone.makeParameterValue(' + parameter + ')', value, false);
             controls[key].bankIndex = index;
+            controls[key].pluginBankGroup = group;
             if (failure) controls[key].error = failure;
         }
         [['previous', 'mPrevBank'], ['next', 'mNextBank'], ['reset', 'mResetBank']].forEach(function (entry) {

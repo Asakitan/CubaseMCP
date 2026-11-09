@@ -1,6 +1,14 @@
 # Cubase AI 16 MCP
 
-Version: 0.1.0. The complete user goal remains active and is not achieved. The current server has 24 MIDI Remote tools; project creation, saving, event editing and parameterized rendering are not implemented. Revision 3.8 previously activated and live reads and a distinct DirectAccess parameter round trip were observed; after a temporary-port smoke its device logged deactivation and the latest status request timed out with outcome `unknown`. Two earlier control-binding writes remain unverified.
+Version: 0.1.0. The complete user goal remains active and is not achieved. The current server has 24 MIDI Remote tools and a fixed current-project Save submission; parameterized project creation, save-as, event editing, verified persistence and parameterized rendering remain incomplete. Revision 3.10 is installed in the current isolated host. A distinct DirectAccess edit was read back, while one Save submission did not produce an observed fixture change and remains unverified. Two earlier control-binding writes also remain unverified.
+
+## Current session 27 evidence
+
+- The previously deactivated mapping was re-established in a distinct owned no-project startup followed by one fixed first-open submission. PID 28428 showed the project root and informer-tree membership, 3.9 device/mapping activation and a successful real MCP handshake (`docs/first-open-27.md`).
+- The first new PID 63660 failed a premature read-only startup preflight before module load or host submission; its per-lifetime admission remains consumed. The launcher now waits for read-only empty-state readiness before admission. A distinct later PID 69032/holder 54396 is currently associated with the `Binding26Jump.cpr` project-path candidate and the installed 3.10 controller.
+- 3.9 adds identity-guarded insert-viewer parameter/on/bypass/automation writes; its source passed the full 109-test suite, but the new viewer writes are not independently verified on the host. 3.10 adds the fixed current-project `project.save` command and passed the focused command tests (`docs/midi-insert-viewer.md`, `docs/project-save-command.md`).
+- On PID 69032 a distinct Stereo Out DirectAccess change `0.7890865802764893 → 0.625` was independently read back. A single fixed Save command was submitted; the fixture bytes and observed file metadata did not change in the following 12 seconds. This does not establish save completion or failure, and the command was not replayed (`docs/project-save-27.md`).
+- Static Hub creation analysis established reference-style retention of a provider object, but its template/path, thread, completion and storage contracts remain unresolved (`docs/project-create-27.md`).
 
 ## Current session 26 evidence
 
