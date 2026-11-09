@@ -81,6 +81,39 @@ test('bridge contract rejects old scripts, inactive mappings and stale sessions'
     assert.ok(remoteSource.includes(`var BRIDGE_REVISION = '${EXPECTED_BRIDGE_REVISION}';`));
 });
 
+test('MCP forwards selected-channel runtime guards to the current bridge', async () => {
+    const original = MidiClient.prototype.request;
+    const requests = [];
+    MidiClient.prototype.request = async function (operation, args) {
+        requests.push({ operation, args });
+        return operation === 'bridge.status'
+            ? { session: 'current', appVersion: '16.0.5', active: true, bridgeRevision: EXPECTED_BRIDGE_REVISION }
+            : { execution: 'submitted' };
+    };
+    const runtime = createServer();
+    const client = new Client({ name: 'runtime-guard-test', version: '1.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    try {
+        await Promise.all([runtime.server.connect(serverTransport), client.connect(clientTransport)]);
+        const control = { session: 'current', key: 'track.volume', value: 0.5,
+            expectedTrackUniqueId: 'track', expectedTrackRuntimeId: 7 };
+        assert.equal((await client.callTool({ name: 'cubase_control_set', arguments: control })).isError, undefined);
+        assert.deepEqual(requests.at(-1), { operation: 'controls.set', args: control });
+        const navigation = { session: 'current', direction: 'next', expectedUniqueId: 'track', expectedRuntimeId: 7 };
+        assert.equal((await client.callTool({ name: 'cubase_track_navigate', arguments: navigation })).isError, undefined);
+        assert.deepEqual(requests.at(-1), { operation: 'track.navigate', args: navigation });
+        const before = requests.length;
+        const invalid = await client.callTool({ name: 'cubase_control_set', arguments: { ...control, expectedTrackRuntimeId: -1 } });
+        assert.equal(invalid.isError, true);
+        assert.equal(requests.length, before);
+    } finally {
+        await client.close();
+        await runtime.server.close();
+        runtime.close();
+        MidiClient.prototype.request = original;
+    }
+});
+
 test('real stdio server exposes tools and rejects missing MIDI without fallback', async () => {
     const root = join(__dirname, '..');
     const transport = new StdioClientTransport({

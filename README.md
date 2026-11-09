@@ -50,7 +50,7 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 3. 带同一 `session`、`root`、`objectId` 和 `tag` 调用 `cubase_parameter_set`；可指定 normalized、plain 或 display 格式。
 4. 读回确认修改。`submitted` 只表示已经提交，不等于操作已完成。
 
-共 23 个 MCP 工具。单参数及单控制项查询、所选轨道身份和前后导航、混音通道位置、速度和时间显示反馈，以及宿主版本和功能上限查询均有明确会话约束。已选轨控制包括四段 EQ、前级滤波、发送、乐器槽、五类通道条效果及其参数页、自动化和只读电平表；发送槽数量按宿主返回值确定，可用性以实际返回为准。`cubase_control_set` 可传入 `expectedTrackUniqueId` 防止写到已经改变的选中轨道。插件替换要求 `confirmReplacement:true`，当前选择命令要求 `confirmCurrentSelection:true`。另有 Control Room 及固定混音器银行操作；声明存在不等于 AI 版本实际开放了相应功能。菜单执行仅限固定清单。
+共 23 个 MCP 工具。单参数及单控制项查询、所选轨道身份和前后导航、混音通道位置、速度和时间显示反馈，以及宿主版本和功能上限查询均有明确会话约束。已选轨控制包括四段 EQ、前级滤波、发送、乐器槽、五类通道条效果及其参数页、自动化和只读电平表；发送槽数量按宿主返回值确定，可用性以实际返回为准。`cubase_control_set` 可同时传入 `expectedTrackUniqueId` 和 `expectedTrackRuntimeId` 检查选中通道；`cubase_track_navigate` 可传入 `expectedRuntimeId`，两个运行时 ID 均来自 `cubase_selected_track`。这些检查不是与宿主状态原子绑定的事务。插件替换要求 `confirmReplacement:true`，当前选择命令要求 `confirmCurrentSelection:true`。另有 Control Room 及固定混音器银行操作；声明存在不等于 AI 版本实际开放了相应功能。菜单执行仅限固定清单。
 
 `cubase_status` 返回紧凑握手，不再内嵌完整对象和控制表。`cubase_controls_list` 的控制和分组分别分页，按 `nextOffset`、`nextGroupOffset` 获取全部项目；`cubase_transport_get` 提供速度与定位器的可用性和实际反馈。长身份标识原样保留，描述性元数据有长度上限。
 
@@ -66,15 +66,15 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 
 ## 验证状态
 
-本轮 TypeScript 构建通过，测试 **77/77** 通过；先前的临时虚拟端口客户端 PID 检查也已通过。统一版本门禁覆盖全部 19 个带会话的宿主操作，诊断命令将端口和握手状态与实际操作就绪状态分开报告。
+本轮 TypeScript 构建通过，测试 **84/84** 通过；先前的临时虚拟端口客户端 PID 检查也已通过。统一版本门禁覆盖全部 19 个带会话的宿主操作，诊断命令将端口和握手状态与实际操作就绪状态分开报告。
 
-控制器 `2026-11-10-coverage-3.5` 已安装并读回核对，私有 Cubase 的脚本日志证实其已构造；新增身份保护的混音器银行查看器尚未通过实机控制验证。之前入口第 7 行的 `module` 错误已修复并有回归测试；最新实例尚未出现设备或映射激活记录。3.5 的一次无写入实机状态请求返回 `MIDI_TIMEOUT`，执行结果为 `unknown`；端口打开并不等于 MCP 握手成功。
+控制器 `2026-11-10-coverage-3.6` 已安装并读回核对，之前的四个安装文件已备份。现存私有 Cubase 未在本轮重启，其脚本日志仍记录 3.5 的构造；3.6 的设备、映射及控制行为尚未通过实机验证。3.5 的一次无写入实机状态请求返回 `MIDI_TIMEOUT`，执行结果为 `unknown`，该请求未重放；端口打开并不等于 MCP 握手成功。
 
 进一步只读快照发现，当前实例的 MIDI Remote 内部输入与输出端口集合当时均为空；它与 Windows 端口已打开属于不同层面的观察，具体同步原因仍待确认。已加载的 DAWproject 组件也在调查中，尚未建立后台工程导入或存储契约。
 
 较早的 `artifacts/live-smoke/verification.json` 记录了真实 Cubase AI 16.0.5 的发现、参数、反馈和音量写入恢复；它不证明本轮新增控制项、工程存储或完整功能覆盖。新版 `verify:live` 脚本要求当前控制器，旧记录与本轮实机验收分别记录。详细状态见 [STATUS](STATUS.md)。
 
-**当前状态（第 16 轮）**：专用隔离实例已打开单独的 `MCP Device Test 20261110.cpr` 实验副本；当前 3.5 的无写入 MIDI 状态请求超时，新增控制项尚无实机验收。只读观察找到路径字段匹配、根节点指针一致的工程文档候选，但它不是当前选中工程或打开、存储完成的证明。宿主打开分支按调用线程选择直接执行或排队；排队投递、提示行为和完成结果仍待验证。创建、存储、编辑工程和完整功能验收仍在进行。详见 [工程候选观察](docs/project-candidate-observation.md)、[打开线程调查](docs/project-open-16.md) 与 [端口模型调查](docs/midi-host-environment.md)。
+**当前状态（第 17 轮）**：已修正选中通道及插件身份变化时的旧反馈失效，并为通道写入和导航增加可选运行时 ID 检查；这些改动已有夹具测试，实机激活仍待验证。专用隔离实例中的工程候选路径和根节点曾匹配，但这不是选中工程或打开、存储完成的证明。创建、存储、编辑工程和完整功能验收仍在进行。详见 [3.6 版本记录](docs/midi-coverage-3.6.md)、[工程候选观察](docs/project-candidate-observation.md) 与 [打开线程调查](docs/project-open-16.md)。
 
 ## 原生项目接口调查
 

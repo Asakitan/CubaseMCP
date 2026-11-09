@@ -28,3 +28,5 @@ The declarations do not establish a general project creation, MIDI/audio event e
 ## Verification
 
 Revision 3.5 adds bank insert viewer and navigation fixtures, including later-channel indexed slots, identity invalidation and missing branches. Revision 3.4 added bank-channel checks for filters, EQ, sends, quick controls, selection and instrument/strip values. See `docs/midi-mixer-bank.md` and `docs/midi-insert-viewer.md` for bounds. These fixtures do not establish host availability or live operation.
+
+Revision 3.6 adds optional selected-channel runtime-ID guards and clears selected insert/strip feedback on valid plug-in-identity callbacks. Its fixture and deployment boundaries are in `docs/midi-coverage-3.6.md`; it does not add a project lifecycle API.

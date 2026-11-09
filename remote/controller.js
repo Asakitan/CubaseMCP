@@ -11,7 +11,7 @@ var MAX_OBJECTS = 2048;
 var MAX_TAGS = 8192;
 var MAX_PLUGINS = 8192;
 var MAX_INTEGER = 9007199254740991;
-var BRIDGE_REVISION = '2026-11-10-coverage-3.5';
+var BRIDGE_REVISION = '2026-11-10-coverage-3.6';
 
 function fail(code, message, details, execution) {
     var error = new Error(message);
@@ -136,6 +136,7 @@ function createController(api, logger) {
     var transportObservation;
     var transportObservationErrors = Object.create(null);
     var observedTrackId = null;
+    var observedTrackRuntimeId = null;
     var commands = Object.create(null);
     var inIdle = false;
     var writingSurface = 0;
@@ -535,6 +536,7 @@ function createController(api, logger) {
         } catch (error) {
             clearTrackObservation();
             observedTrackId = null;
+            observedTrackRuntimeId = null;
             return false;
         }
     }
@@ -736,10 +738,11 @@ function createController(api, logger) {
         if (activeMapping) {
             try {
                 var current = selectedTrack();
-                controlGroups['track.identity'] = { available: true, uniqueId: current.uniqueId };
+                controlGroups['track.identity'] = { available: true, uniqueId: current.uniqueId, runtimeId: current.runtimeId };
             } catch (error) {
                 clearTrackObservation();
                 observedTrackId = null;
+                observedTrackRuntimeId = null;
                 controlGroups['track.identity'] = { available: false, error: errorData(error) };
             }
         }
@@ -835,6 +838,16 @@ function createController(api, logger) {
                     { currentUniqueId: currentTrack.uniqueId });
             }
         }
+        if (args.expectedTrackRuntimeId !== undefined) {
+            if (!currentTrack || args.expectedTrackUniqueId === undefined ||
+                !integer(args.expectedTrackRuntimeId, 0, MAX_INTEGER)) {
+                fail('INVALID_ARGUMENT', 'expectedTrackRuntimeId requires a track control and expectedTrackUniqueId.');
+            }
+            if (currentTrack.runtimeId !== args.expectedTrackRuntimeId) {
+                fail('TRACK_CHANGED', 'The selected channel instance changed before the control write.',
+                    { currentUniqueId: currentTrack.uniqueId, currentRuntimeId: currentTrack.runtimeId });
+            }
+        }
         if (record.bankIndex !== undefined) {
             if (typeof args.expectedChannelUniqueId !== 'string' || !args.expectedChannelUniqueId) {
                 fail('CONFIRMATION_REQUIRED', 'Bank-channel writes require the previously observed expectedChannelUniqueId.');
@@ -863,6 +876,7 @@ function createController(api, logger) {
             if (record.bankIndex !== undefined && /\.selected$/.test(args.key)) {
                 clearTrackObservation();
                 observedTrackId = null;
+                observedTrackRuntimeId = null;
             }
             setSurface(record, value, record.momentary);
             return receipt(request, { key: args.key, requestedValue: value, before: before, after: record.observed });
@@ -881,6 +895,15 @@ function createController(api, logger) {
         return submitted(function () {
             setSurface(record, 1, true);
             return receipt(request, { key: args.key, context: record.definition.context });
+        });
+    }
+
+    function clearGroupObservation(group) {
+        Object.keys(controls).forEach(function (key) {
+            if (key.indexOf(group + '.') === 0) {
+                controls[key].observed = null;
+                controls[key].display = null;
+            }
         });
     }
 
@@ -941,14 +964,24 @@ function createController(api, logger) {
     }
 
     function selectedTrack() {
-        var selection = host && host.mTrackSelection;
-        var selected = selection && selection.mMixerChannel;
-        var uniqueId = hostText(invoke(selected, 'getUniqueIDString', [activeMapping]));
-        if (!uniqueId) fail('NO_TRACK_SELECTED', 'Cubase did not report an identity for the selected channel.');
-        if (observedTrackId !== null && observedTrackId !== uniqueId) clearTrackObservation();
-        observedTrackId = uniqueId;
-        return { session: session, uniqueId: uniqueId,
-            runtimeId: hostCount(invoke(selected, 'getRuntimeID', [activeMapping])) };
+        try {
+            var selection = host && host.mTrackSelection;
+            var selected = selection && selection.mMixerChannel;
+            var uniqueId = hostText(invoke(selected, 'getUniqueIDString', [activeMapping]));
+            if (!uniqueId) fail('NO_TRACK_SELECTED', 'Cubase did not report an identity for the selected channel.');
+            var runtimeId = hostCount(invoke(selected, 'getRuntimeID', [activeMapping]));
+            if (observedTrackId !== null && (observedTrackId !== uniqueId || observedTrackRuntimeId !== runtimeId)) {
+                clearTrackObservation();
+            }
+            observedTrackId = uniqueId;
+            observedTrackRuntimeId = runtimeId;
+            return { session: session, uniqueId: uniqueId, runtimeId: runtimeId };
+        } catch (error) {
+            clearTrackObservation();
+            observedTrackId = null;
+            observedTrackRuntimeId = null;
+            throw error;
+        }
     }
 
     function navigateTrack(request, args) {
@@ -958,10 +991,14 @@ function createController(api, logger) {
         if (typeof args.expectedUniqueId !== 'string' || !args.expectedUniqueId) {
             fail('INVALID_ARGUMENT', 'expectedUniqueId must be the observed selected channel identity.');
         }
+        if (args.expectedRuntimeId !== undefined && !integer(args.expectedRuntimeId, 0, MAX_INTEGER)) {
+            fail('INVALID_ARGUMENT', 'expectedRuntimeId must be a nonnegative safe integer.');
+        }
         var before = selectedTrack();
-        if (before.uniqueId !== args.expectedUniqueId) {
+        if (before.uniqueId !== args.expectedUniqueId ||
+            (args.expectedRuntimeId !== undefined && before.runtimeId !== args.expectedRuntimeId)) {
             fail('TRACK_CHANGED', 'The selected channel changed; query it again before navigating.',
-                { currentUniqueId: before.uniqueId });
+                { currentUniqueId: before.uniqueId, currentRuntimeId: before.runtimeId });
         }
         var actions = host.mTrackSelection && host.mTrackSelection.mAction;
         var action = actions && actions[args.direction === 'previous' ? 'mPrevTrack' : 'mNextTrack'];
@@ -1172,6 +1209,7 @@ function createController(api, logger) {
         seen = Object.create(null);
         seenCount = 0;
         observedTrackId = null;
+        observedTrackRuntimeId = null;
         clearTrackObservation();
         clearBankObservations();
         clearTransportObservation();
@@ -1214,6 +1252,7 @@ function createController(api, logger) {
         outbound = [];
         decoder.reset();
         observedTrackId = null;
+        observedTrackRuntimeId = null;
         clearTrackObservation();
         clearBankObservations();
         clearTransportObservation();
@@ -1311,6 +1350,7 @@ function createController(api, logger) {
                     name.length > 4096 || vendor.length > 4096 || version.length > 4096 || format.length > 4096) return;
                 try {
                     var current = selectedTrack();
+                    clearGroupObservation(group);
                     controlGroups[group].pluginIdentity = { name: name, vendor: vendor, version: version,
                         formatVersion: format, trackUniqueId: current.uniqueId };
                 } catch (error) { clearTrackObservation(); }
@@ -1358,6 +1398,7 @@ function createController(api, logger) {
                     pluginName.length > 4096 || vendor.length > 4096 || version.length > 4096 || format.length > 4096) return;
                 try {
                     var current = selectedTrack();
+                    clearGroupObservation(group);
                     controlGroups[group].pluginIdentity = { name: pluginName, vendor: vendor, version: version,
                         formatVersion: format, trackUniqueId: current.uniqueId };
                 } catch (error) { clearTrackObservation(); }
@@ -1467,9 +1508,7 @@ function createController(api, logger) {
                 if (device !== activeDevice || mapping !== activeMapping ||
                     typeof name !== 'string' || typeof vendor !== 'string' || typeof version !== 'string' || typeof format !== 'string' ||
                     name.length > 4096 || vendor.length > 4096 || version.length > 4096 || format.length > 4096) return;
-                Object.keys(controls).forEach(function (key) {
-                    if (key.indexOf(group + '.') === 0) { controls[key].observed = null; controls[key].display = null; }
-                });
+                clearGroupObservation(group);
                 try {
                     var current = bankChannelIdentity(index, false);
                     controlGroups[group].pluginIdentity = { name: name, vendor: vendor, version: version,

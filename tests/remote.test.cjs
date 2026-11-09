@@ -18,7 +18,7 @@ test('large host maxima and error messages preserve compact handshake and bounde
         page.makeValueBinding = () => { throw new Error('unavailable-' + 'x'.repeat(5000)); };
     });
     assert.equal(harness.status.ok, true, JSON.stringify(harness.status));
-    assert.equal(harness.status.data.bridgeRevision, '2026-11-10-coverage-3.5');
+    assert.equal(harness.status.data.bridgeRevision, '2026-11-10-coverage-3.6');
     let offset = 0;
     const keys = [];
     do {
@@ -136,6 +136,102 @@ test('insert viewer rejects unavailable filters and excessive host slot maxima',
     assert.equal(groups['track.insert.empty'].error.code, 'API_UNAVAILABLE');
     assert.equal(groups['track.insert.slots'].error.code, 'HOST_LIMIT_EXCEEDED');
     expectError(harness.call('controls.get', { key: 'track.insert.slot.0.on' }), 'INVALID_CONTROL');
+});
+
+test('selected insert identity changes revoke only that viewer feedback', () => {
+    const viewers = {};
+    const harness = fixture((api, state, { host }) => {
+        api.mDefaults.getNumberOfInsertEffectSlots = () => 2;
+        host.mTrackSelection.mMixerChannel.mInsertAndStripEffects.makeInsertEffectViewer = name => {
+            const viewer = { mOn: {}, mAction: {},
+                mParameterBankZone: { makeParameterValue: () => ({}), mAction: {} },
+                includeEmptySlotsOnly() { return viewer; }, excludeEmptySlots() { return viewer; },
+                accessSlotAtIndex() { return viewer; } };
+            viewers[name] = viewer;
+            return viewer;
+        };
+    });
+    const viewer = viewers['CubaseAI MCP slot.0'];
+    viewer.mOnChangePluginIdentity(harness.device, harness.currentMapping(), 'A', 'V', '1', '3');
+    viewer.mOn.mOnProcessValueChange(harness.device, harness.currentMapping(), 1);
+    viewer.mOn.mOnDisplayValueChange(harness.device, harness.currentMapping(), 'On', '');
+    harness.emit('track.insert.slot.0.parameter.0', 0.25);
+    harness.emit('track.insert.slot.1.on', 0.4);
+    harness.emit('track.volume', 0.8);
+    viewer.mOnChangePluginIdentity({}, harness.currentMapping(), 'Ignored', 'V', '1', '3');
+    assert.equal(harness.call('controls.get', { key: 'track.insert.slot.0.on' }).data.control.observed.value, 1);
+    viewer.mOnChangePluginIdentity(harness.device, harness.currentMapping(), 'B', 'V', '1', '3');
+    const changed = harness.call('controls.get', { key: 'track.insert.slot.0.on' }).data.control;
+    assert.equal(changed.observed, null);
+    assert.equal(changed.display, null);
+    assert.equal(harness.call('controls.get', { key: 'track.insert.slot.0.parameter.0' }).data.control.observed, null);
+    assert.equal(harness.call('controls.get', { key: 'track.insert.slot.1.on' }).data.control.observed.value, 0.4);
+    assert.equal(harness.call('controls.get', { key: 'track.volume' }).data.control.observed.value, 0.8);
+    assert.equal(listAll(harness).groups['track.insert.slot.0'].pluginIdentity.name, 'B');
+});
+
+test('selected strip identity changes revoke that plugin feedback', () => {
+    let slot;
+    const harness = fixture((api, state, { host }) => {
+        slot = host.mTrackSelection.mMixerChannel.mInsertAndStripEffects.mStripEffects.mGate;
+        slot.mParameterBankZone = { makeParameterValue: () => ({}), mAction: {} };
+    });
+    slot.mOnChangePluginIdentity(harness.device, harness.currentMapping(), 'Gate A', 'V', '1', '3');
+    slot.mOn.mOnProcessValueChange(harness.device, harness.currentMapping(), 1);
+    harness.emit('track.strip.gate.parameter.0', 0.3);
+    harness.emit('track.volume', 0.7);
+    slot.mOnChangePluginIdentity(harness.device, harness.currentMapping(), 'Gate B', 'V', '1', '3');
+    assert.equal(harness.call('controls.get', { key: 'track.strip.gate.on' }).data.control.observed, null);
+    assert.equal(harness.call('controls.get', { key: 'track.strip.gate.parameter.0' }).data.control.observed, null);
+    assert.equal(harness.call('controls.get', { key: 'track.volume' }).data.control.observed.value, 0.7);
+    assert.equal(listAll(harness).groups['track.strip.gate'].pluginIdentity.name, 'Gate B');
+});
+
+test('selected channel runtime replacement revokes cached track feedback', () => {
+    let runtimeId = 2;
+    const harness = fixture((api, state, { host }) => {
+        host.mTrackSelection.mMixerChannel.getRuntimeID = () => runtimeId;
+    });
+    harness.emit('track.volume', 0.6);
+    const value = harness.surfaces['track.volume'].hostValue;
+    value.mOnDisplayValueChange(harness.device, harness.currentMapping(), '-3', 'dB');
+    assert.equal(harness.call('track.current').data.runtimeId, 2);
+    runtimeId = 3;
+    const changed = harness.call('controls.get', { key: 'track.volume' }).data.control;
+    assert.equal(changed.observed, null);
+    assert.equal(changed.display, null);
+    assert.equal(harness.call('track.current').data.runtimeId, 3);
+    expectError(harness.call('controls.set', { key: 'track.volume', value: 0.5,
+        expectedTrackUniqueId: 'track-uid-2', expectedTrackRuntimeId: 2 }), 'TRACK_CHANGED');
+    expectError(harness.call('track.navigate', { direction: 'next', expectedUniqueId: 'track-uid-2',
+        expectedRuntimeId: 2 }), 'TRACK_CHANGED');
+    expectError(harness.call('controls.set', { key: 'transport.cycle', value: 1,
+        expectedTrackRuntimeId: 3 }), 'INVALID_ARGUMENT');
+    expectError(harness.call('controls.set', { key: 'track.volume', value: 0.5,
+        expectedTrackRuntimeId: 3 }), 'INVALID_ARGUMENT');
+    assert.equal(harness.writes.length, 0);
+    assert.equal(harness.state.trackMoves.length, 0);
+    assert.equal(harness.call('controls.set', { key: 'track.volume', value: 0.5,
+        expectedTrackUniqueId: 'track-uid-2', expectedTrackRuntimeId: 3 }).data.execution, 'submitted');
+    assert.equal(harness.call('track.navigate', { direction: 'next', expectedUniqueId: 'track-uid-2',
+        expectedRuntimeId: 3 }).data.execution, 'submitted');
+});
+
+test('an unavailable selected channel revokes prior observations even if the same identity returns', () => {
+    const harness = fixture();
+    harness.emit('track.volume', 0.6);
+    assert.equal(harness.call('controls.get', { key: 'track.volume' }).data.control.observed.value, 0.6);
+    harness.state.selectedTrackId = '';
+    expectError(harness.call('controls.get', { key: 'track.volume' }), 'NO_TRACK_SELECTED');
+    harness.state.selectedTrackId = 'track-uid-2';
+    assert.equal(harness.call('controls.get', { key: 'track.volume' }).data.control.observed, null);
+    harness.emit('track.volume', 0.4);
+    const channel = harness.host.mTrackSelection.mMixerChannel;
+    const getRuntimeID = channel.getRuntimeID;
+    delete channel.getRuntimeID;
+    expectError(harness.call('controls.get', { key: 'track.volume' }), 'API_UNAVAILABLE');
+    channel.getRuntimeID = getRuntimeID;
+    assert.equal(harness.call('controls.get', { key: 'track.volume' }).data.control.observed, null);
 });
 
 test('Control Room bindings use declared host maxima and report missing values', () => {
@@ -789,7 +885,7 @@ test('factory registers exact ports and reports only real app and root data', ()
     assert.deepEqual(harness.detectionNames, harness.portNames);
     const status = harness.status.data;
     assert.equal(status.appVersion, '16.0.5');
-    assert.equal(status.bridgeRevision, '2026-11-10-coverage-3.5');
+    assert.equal(status.bridgeRevision, '2026-11-10-coverage-3.6');
     assert.deepEqual(status.policy, { backgroundOnly: true, fallback: false });
     assert.equal(status.discovery.controlTotal, 124);
     assert.equal(harness.call('objects.list', { root: 'trackSelection' }).data.baseObject.uniqueIdString, 'uid-1');

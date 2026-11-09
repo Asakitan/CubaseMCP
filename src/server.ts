@@ -104,9 +104,10 @@ export function createServer(config: Configuration = loadConfig()) {
     expose('cubase_control_get', 'controls.get', 'Read one declared control, its availability, read-only status and last host feedback.', {
         ...session, key: z.string().min(1).max(100)
     });
-    expose('cubase_control_set', 'controls.set', 'Set one declared background control by key; value is normalized 0..1. Bank channel writes require a previously observed expectedChannelUniqueId. Buttons may be momentary. Does not open or focus a window.', {
+    expose('cubase_control_set', 'controls.set', 'Set one declared background control by key; value is normalized 0..1. Bank channel writes require a previously observed expectedChannelUniqueId. Optionally guard a track control using both its unique and runtime IDs. Buttons may be momentary. Does not open or focus a window.', {
         ...session, key: z.string().min(1).max(100), value: z.number().min(0).max(1),
         expectedTrackUniqueId: z.string().min(1).max(512).optional(),
+        expectedTrackRuntimeId: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
         expectedChannelUniqueId: z.string().min(1).max(512).optional()
     }, false);
     expose('cubase_tempo_set', 'transport.tempo', 'Submit a tempo in BPM through the native transport API. The host determines its supported range; inspect the observed tempo before assuming completion.', {
@@ -121,9 +122,10 @@ export function createServer(config: Configuration = loadConfig()) {
     expose('cubase_command_execute', 'commands.execute', 'Execute a declared command once, only when canPerform succeeds. Contextual commands operate on the existing selection; no foreground selection is performed.', {
         ...session, key: z.string().min(1).max(100), confirmCurrentSelection: z.literal(true)
     }, false);
-    expose('cubase_selected_track', 'track.current', 'Read the current selected channel runtime ID and unique ID directly from Cubase. Use its uniqueId to guard track navigation.', session);
-    expose('cubase_track_navigate', 'track.navigate', 'Select the previous or next track using the native MIDI Remote action. Requires the currently observed selected channel uniqueId; returns submitted, not verified completion.', {
-        ...session, direction: z.enum(['previous', 'next']), expectedUniqueId: z.string().min(1).max(512)
+    expose('cubase_selected_track', 'track.current', 'Read the current selected channel runtime ID and unique ID directly from Cubase. Use them to guard track controls and navigation.', session);
+    expose('cubase_track_navigate', 'track.navigate', 'Select the previous or next track using the native MIDI Remote action. Requires the selected channel uniqueId and optionally its runtimeId; returns submitted, not verified completion.', {
+        ...session, direction: z.enum(['previous', 'next']), expectedUniqueId: z.string().min(1).max(512),
+        expectedRuntimeId: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional()
     }, false);
 
     server.registerTool('cubase_ports', {

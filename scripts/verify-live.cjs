@@ -1,10 +1,21 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { randomUUID } = require('node:crypto');
 const { mkdirSync, writeFileSync } = require('node:fs');
 const { resolve, join } = require('node:path');
 const { Client } = require('@modelcontextprotocol/client');
 const { StdioClientTransport } = require('@modelcontextprotocol/client/stdio');
+
+async function volumeWriteAndRestore(original, target, setValue, observeUntil) {
+    await setValue(target);
+    const changed = await observeUntil(value => Number.isFinite(value) && Math.abs(value - target) < 0.00001);
+    assert.ok(Number.isFinite(changed) && Math.abs(changed - target) < 0.00001, 'Requested value was not observed.');
+    await setValue(original);
+    const restored = await observeUntil(value => Number.isFinite(value) && Math.abs(value - original) < 0.00001);
+    assert.ok(Number.isFinite(restored) && Math.abs(restored - original) < 0.00001, 'Original value was not restored.');
+    return { original, requested: target, observed: changed, restored };
+}
 
 async function main() {
     const args = process.argv.slice(2);
@@ -62,32 +73,25 @@ async function main() {
             await check('volume-write-read-restore', async () => {
                 const track = await call('cubase_selected_track', { session: status.session });
                 const before = await call('cubase_control_get', { session: status.session, key: 'track.volume' });
-                const original = before.control.observed.value;
+                const original = before.control.observed && before.control.observed.value;
+                assert.ok(Number.isFinite(original), 'No original track volume was observed.');
                 const target = original >= 0.5 ? 0.25 : 0.75;
                 async function observeUntil(predicate) {
                     const deadline = Date.now() + 2000;
                     let observed;
                     do {
                         const control = await call('cubase_control_get', { session: status.session, key: 'track.volume' });
-                        observed = control.control.observed.value;
+                        observed = control.control.observed && control.control.observed.value;
                         if (predicate(observed)) return observed;
                         await new Promise(resolve => setTimeout(resolve, 50));
                     } while (Date.now() < deadline);
                     return observed;
                 }
-                let changed;
-                try {
-                    await call('cubase_control_set', { session: status.session, key: 'track.volume', value: target,
-                        expectedTrackUniqueId: track.uniqueId });
-                    changed = await observeUntil(value => Math.abs(value - original) > 0.000001);
-                    assert.ok(Math.abs(changed - original) > 0.000001, 'No real value change observed.');
-                } finally {
-                    await call('cubase_control_set', { session: status.session, key: 'track.volume', value: original,
-                        expectedTrackUniqueId: track.uniqueId });
+                async function setValue(value) {
+                    await call('cubase_control_set', { session: status.session, key: 'track.volume', value,
+                        expectedTrackUniqueId: track.uniqueId, expectedTrackRuntimeId: track.runtimeId });
                 }
-                const restored = await observeUntil(value => Math.abs(value - original) < 0.00001);
-                assert.ok(Math.abs(restored - original) < 0.00001, 'Original value was not restored.');
-                return { original, requested: target, observed: changed, restored };
+                return volumeWriteAndRestore(original, target, setValue, observeUntil);
             });
         }
     } catch (error) {
@@ -97,10 +101,14 @@ async function main() {
         report.passed = report.checks.length > 0 && report.checks.every(check => check.passed);
         const directory = join(root, 'artifacts/live-smoke');
         mkdirSync(directory, { recursive: true });
-        writeFileSync(join(directory, 'verification-coverage.json'), JSON.stringify(report, null, 2) + '\n');
+        report.outputPath = join(directory, `verification-coverage-${randomUUID()}.json`);
+        writeFileSync(report.outputPath, JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
         process.stdout.write(JSON.stringify(report, null, 2) + '\n');
         if (!report.passed) process.exitCode = 1;
     }
 }
 
-main().catch(error => { process.stderr.write(error.message + '\n'); process.exitCode = 1; });
+module.exports = { volumeWriteAndRestore };
+if (require.main === module) {
+    main().catch(error => { process.stderr.write(error.message + '\n'); process.exitCode = 1; });
+}
