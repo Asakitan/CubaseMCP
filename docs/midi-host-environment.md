@@ -22,3 +22,9 @@ The coordinator independently ran the checked diagnostic at `17:09:02Z` and capt
 ## Next discriminating step
 
 Trace the native producer or synchronization path which populates `HostMidiInput` and `HostMidiOutput` in the MIDI Remote host environment, including its documented ownership/context and any bounded observable status. Do not infer that toggling a setting, opening a panel, recreating ports or altering a saved project will populate these vectors without separate evidence. Revalidate the process, executable, version and model before any new snapshot.
+
+## Session 20 distinct-startup snapshot
+
+In isolated PID 24036, `artifacts/ipc/midi-informer-samedir-24036-20.json` observed a 16-entry port registry with both MCP names in each of the MME input and output socket classes, the adapter in the informer observer vector, and informer `+0x60` and `+0x90` counts of zero. A separate validated stable snapshot `artifacts/ipc/midi-environment-samedir-24036-20.json` observed zero HostEnvironment input and output entries. These separate point observations reproduce the earlier separation of OS-facing registry presence and empty model vectors, not its cause, callback history, device activation or a working MCP handshake.
+
+After a distinct same-directory host-open submission and the subsequent private activation prompt, a new point snapshot still showed the two informer counts at zero and the adapter in the observer vector; the script console still showed construction only (`artifacts/ipc/midi-informer-after-open20-24036.json`, `artifacts/ipc/midi-script-after-open20-24036.json`). The prompt was not operated. No new MIDI status request was issued merely in response to the unknown host-open submission.

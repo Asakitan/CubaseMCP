@@ -58,7 +58,7 @@
 | `scripts/Read-DawprojectHostContext.ps1`, `scripts/dawproject-host-context-inspect.py`, `docs/dawproject-host-context.md` | Read-only host context and listener investigation | MProject/MRoot vtables and informer listener membership observed; active-project and import semantics unverified |
 | `scripts/Read-DawprojectRootField.ps1`, `docs/dawproject-active-project.md` | Read-only MRoot field investigation | A tempo-track event and its interface were observed; no arrangement or lifecycle operation claimed |
 | `docs/project-save-target.md` | Native save destination and cleanup investigation | Conditional file deletion and creation paths identified; exact targets and recovery semantics unresolved |
-| `scripts/Trace-MidiStartup.ps1`, `docs/midi-startup-timeline.md` | Isolated read-only startup snapshots | Version-validated, bounded listener and project-tree sampling; prearmed launch mode is diagnostic only |
+| `scripts/Trace-MidiStartup.ps1`, `docs/midi-startup-timeline.md` | Isolated read-only startup snapshots | Explicit same-directory next CPR, bounded listener/tree and desktop/title samples; diagnostic only |
 | `tests/background-launch-pipe.ps1` | Focused background-launch contract check | Existing-instance guard returned through captured stdout with separate holder logs; a fresh launch was not tested by this check |
 | `docs/project-open-routing.md`, `docs/project-lifecycle-dispatch.md`, `scripts/project-lifecycle-dispatch-inspect.py` | Lifecycle routing and dispatcher investigation | Static paths and file association observed; main-thread affinity and unattended lifecycle contract remain unverified |
 | `docs/midi-coverage-3.4.md` | Bank-channel coverage and limits | Declaration-backed guarded controls; current live mapping and project operations remain unverified |
@@ -84,12 +84,14 @@
 | `scripts/project-create-save-16-inspect.py`, `docs/project-create-save-16.md` | Additional save predicate | Local-volume branch narrowed; target, alerts and save completion unresolved |
 | `scripts/midi-activation-16-inspect.py`, `docs/midi-activation-16.md` | Scanner request-path follow-up | Output-collection return and conditional request-object submission traced; transmission and mapping unverified |
 | `docs/midi-coverage-3.6.md` | Selected-channel guards and verifier | Source and installed 3.6 fixture-tested and constructed; current no-write handshake timed out |
-| `tests/DesktopJobProbe.cs`, `tests/desktop-job-boundary.ps1`, `docs/background-desktop-job.md` | Restricted desktop job diagnostic | Synthetic job/desktop denial and one real isolated Cubase start observed; no continuous foreground proof |
+| `tests/DesktopJobProbe.cs`, `tests/desktop-job-boundary.ps1`, `docs/background-desktop-job.md` | Restricted desktop job diagnostic | Synthetic job/desktop denial and isolated Cubase starts observed, including detached holder; no continuous foreground proof |
 | `tests/DetachedHolderProbe.ps1`, `tests/DetachedHolderStarter.ps1`, `tests/detached-holder-pipe.ps1` | Detached holder pipe check | Synthetic long-lived holder closes caller pipes; existing-instance guard also passed |
 | `docs/project-save-command.md` | Fixed Save binding contract | Installed example confirmed; noninteractive and completed save unverified |
 | `native/bridge/CubaseMcpProjectOpenProbe19.cpp`, `native/ProjectOpenProbe19Loader.cs`, `native/ProjectOpenJobAudit19.cs`, `scripts/*ProjectOpenProbe19.ps1` | Fixed isolated open diagnostic | One submission returned 0; moved-project dialog appeared, outcome unknown and no replay |
 | `scripts/Observe-ProjectOpen19.ps1`, `docs/project-open-observer-19.md` | Bounded background observer | 546 polling samples, private dialog observed; transient events can be missed |
 | `scripts/project-moved-prompt-19-inspect.py`, `docs/project-moved-prompt-19.md` | Moved-project prompt follow-up | Fixed-build path-comparison and parameter branches traced; no prompt-free lifecycle established |
+| `native/bridge/CubaseMcpProjectOpenProbe20.cpp`, `native/ProjectOpenProbe20Loader.cs`, `native/ProjectOpenJobAudit20.cs`, `scripts/*ProjectOpenProbe20.ps1`, `scripts/Observe-ProjectOpen20.ps1`, `scripts/Prepare-ProjectOpen20Fixture.ps1`, `docs/project-open-probe-20.md` | Fixed same-directory isolated open diagnostic | One submission returned 0; private project-activation prompt appeared, outcome unknown and no replay |
+| `scripts/Read-ProjectWindowControllers20.ps1`, `docs/project-window-controller-20.md`, `docs/project-activation-prompt-20.md` | Read-only window inventory and prompt research | Three unlocked list entries observed; prompt translation reference located, display branch unknown |
 
 ## Update Log
 
@@ -115,3 +117,4 @@
 | 2026-11-10 | Added selected-channel runtime guards and plug-in feedback invalidation, corrected verifier write/restore sequencing, and installed 3.6; 84 tests passed, live activation unverified. |
 | 2026-11-10 | Added restricted desktop job and detached holder, restarted owned Cubase with 3.6, and recorded a no-write status timeout; no project lifecycle completion claimed. |
 | 2026-11-10 | Submitted one fixed isolated copied-project open and observed a private working-directory dialog; open remains unknown and was not replayed. |
+| 2026-11-10 | Added explicit same-directory startup sampling, verified detached launch and empty MIDI model, and submitted one distinct same-directory open; activation prompt observed, outcome unknown. |

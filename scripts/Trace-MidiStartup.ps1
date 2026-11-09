@@ -3,6 +3,7 @@ param(
  [Parameter(Mandatory=$true,ParameterSetName='Target')][ValidateRange(1,2147483647)][int]$TargetProcessId,
  [Parameter(Mandatory=$true,ParameterSetName='NextLaunch')][ValidatePattern('^[a-f0-9]{32}$')][string]$NextLaunchRunId,
  [Parameter(Mandatory=$true,ParameterSetName='NextLaunch')][ValidateRange(1,2147483647)][int]$PreviousProcessId,
+ [Parameter(Mandatory=$true,ParameterSetName='NextLaunch')][string]$NextProjectPath,
  [ValidateRange(1,300)][int]$DurationSeconds=30,
  [ValidateRange(50,5000)][int]$IntervalMs=100
 )
@@ -12,6 +13,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using System.Text;
 public static class MidiStartupTrace {
  const ulong B=0x140000000, ProjectGlobal=0x59110d0, InformerGlobal=0x5909af0;
  [DllImport("kernel32.dll",SetLastError=true)] static extern IntPtr OpenProcess(uint a,bool i,int p);
@@ -22,11 +24,19 @@ public static class MidiStartupTrace {
  [DllImport("user32.dll",SetLastError=true)] static extern bool EnumDesktopWindows(IntPtr d,EnumProc e,IntPtr s);
  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr w,out uint p);
  [DllImport("user32.dll")] static extern bool CloseDesktop(IntPtr d);
+ [DllImport("user32.dll",SetLastError=true)] static extern IntPtr OpenInputDesktop(uint f,bool i,uint a);
+ [DllImport("user32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool GetUserObjectInformationW(IntPtr d,int k,StringBuilder s,uint n,out uint needed);
+ [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+ [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern int GetWindowTextW(IntPtr w,StringBuilder s,int n);
+ [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr w);
  static ulong Q(byte[] b,int o){return BitConverter.ToUInt64(b,o);}
  static byte[] R(IntPtr p,ulong a,int n){if(a==0||n<1||n>1024)throw new Exception("read bounds");byte[] b=new byte[n];IntPtr got;if(!ReadProcessMemory(p,(IntPtr)(long)a,b,n,out got)||got.ToInt64()!=n)throw new Win32Exception(Marshal.GetLastWin32Error(),"ReadProcessMemory");return b;}
  static bool Eq(byte[] a,byte[] b){if(a.Length!=b.Length)return false;for(int i=0;i<a.Length;i++)if(a[i]!=b[i])return false;return true;}
  static string H(ulong v){return "0x"+v.ToString("x");}
- public static int Windows(int pid){IntPtr d=OpenDesktopW("CubaseAI_MCP",0,false,0x41);if(d==IntPtr.Zero)throw new Win32Exception(Marshal.GetLastWin32Error(),"OpenDesktop");try{int n=0;if(!EnumDesktopWindows(d,(IntPtr w,IntPtr s)=>{uint o;GetWindowThreadProcessId(w,out o);if(o==(uint)pid)n++;return true;},IntPtr.Zero))throw new Win32Exception(Marshal.GetLastWin32Error(),"EnumDesktopWindows");return n;}finally{CloseDesktop(d);}}
+ public sealed class DesktopSample {public int count;public string[] titles;}
+ public sealed class InputSample {public string inputDesktop,foregroundHwnd;public uint foregroundPid;}
+ public static DesktopSample Windows(int pid){IntPtr d=OpenDesktopW("CubaseAI_MCP",0,false,0x41);if(d==IntPtr.Zero)throw new Win32Exception(Marshal.GetLastWin32Error(),"OpenDesktop");try{int n=0;var titles=new List<string>();EnumProc cb=(IntPtr w,IntPtr s)=>{uint o;GetWindowThreadProcessId(w,out o);if(o==(uint)pid){n++;if(IsWindowVisible(w)){var text=new StringBuilder(512);GetWindowTextW(w,text,text.Capacity);if(text.Length>0)titles.Add(text.ToString());}}return true;};if(!EnumDesktopWindows(d,cb,IntPtr.Zero))throw new Win32Exception(Marshal.GetLastWin32Error(),"EnumDesktopWindows");GC.KeepAlive(cb);return new DesktopSample{count=n,titles=titles.ToArray()};}finally{CloseDesktop(d);}}
+ public static InputSample Input(){IntPtr d=OpenInputDesktop(0,false,1);if(d==IntPtr.Zero)throw new Win32Exception(Marshal.GetLastWin32Error(),"OpenInputDesktop");try{var name=new StringBuilder(256);uint needed;if(!GetUserObjectInformationW(d,2,name,(uint)(name.Capacity*2),out needed))throw new Win32Exception(Marshal.GetLastWin32Error(),"GetUserObjectInformation");if(name.Length==0)throw new Exception("empty input desktop");IntPtr fg=GetForegroundWindow();uint pid=0;if(fg!=IntPtr.Zero)GetWindowThreadProcessId(fg,out pid);return new InputSample{inputDesktop=name.ToString(),foregroundHwnd=H((ulong)fg.ToInt64()),foregroundPid=pid};}finally{CloseDesktop(d);}}
  public sealed class Sample {public string status="pending",projectState="pending",informerState="pending",rootState="pending",project,informer,root,treeHead;public ulong? treeCount;public int? listenerCount;public bool? listenerFound,treeContainsRoot;public bool stable;}
  public static Sample Read(int pid){var s=new Sample();IntPtr p=OpenProcess(0x410,false,pid);if(p==IntPtr.Zero)throw new Win32Exception(Marshal.GetLastWin32Error(),"OpenProcess");try{
  byte[] pg=R(p,B+ProjectGlobal,8),ig=R(p,B+InformerGlobal,8);ulong project=Q(pg,0),informer=Q(ig,0);s.project=H(project);s.informer=H(informer);
@@ -53,20 +63,27 @@ public static class MidiStartupTrace {
 $root=Split-Path -Parent $PSScriptRoot
 $runId=if($PSCmdlet.ParameterSetName -eq 'NextLaunch'){$NextLaunchRunId}else{[Guid]::NewGuid().ToString('N')}
 $out=if($PSCmdlet.ParameterSetName -eq 'NextLaunch'){Join-Path $root "artifacts\ipc\midi-startup-timeline-next-$runId.json"}else{Join-Path $root "artifacts\ipc\midi-startup-timeline-$TargetProcessId-$runId.json"}
-$result=[ordered]@{pid=$null; status='error'; error=$null; outputFile=$out; armUtc=$null; receiptReadErrors=0; processStartUtc=$null; launchMetadataUtc=$null; executable=$null; version=$null; peTimestamp=$null; samples=@(); limitation='Snapshots are not event history. Zero private-desktop windows leaves desktop ownership unverified.'}
+$result=[ordered]@{pid=$null; status='error'; error=$null; outputFile=$out; armUtc=$null; receiptReadErrors=0; processStartUtc=$null; launchMetadataUtc=$null; executable=$null; version=$null; peTimestamp=$null; backgroundViolation=$false; samples=@(); limitation='Snapshots are not event history. Foreground is the calling-desktop view; zero private-desktop windows leaves desktop ownership unverified.'}
 try {
  $lp=Join-Path $root 'artifacts\runtime\cubase-launch.json'
  Add-Type $source
  if($PSCmdlet.ParameterSetName -eq 'NextLaunch'){
   $previous=Get-Content -LiteralPath $lp -Raw -Encoding UTF8|ConvertFrom-Json
   if([int]$previous.ProcessId -ne $PreviousProcessId -or $previous.Desktop -cne 'winsta0\CubaseAI_MCP'){throw 'Previous launch PID or desktop mismatch.'}
-  $expectedProject=[IO.Path]::GetFullPath([string]$previous.Project);$ownedDirectory=[IO.Path]::GetFullPath((Join-Path $root 'artifacts\live-smoke')).TrimEnd('\')+'\'
-  if(-not $expectedProject.StartsWith($ownedDirectory,[StringComparison]::OrdinalIgnoreCase) -or -not (Test-Path -LiteralPath $expectedProject -PathType Leaf)){throw 'Previous project is not an owned test file.'}
+  $previousProject=[IO.Path]::GetFullPath([string]$previous.Project);$expectedProject=[IO.Path]::GetFullPath($NextProjectPath);$ownedDirectory=[IO.Path]::GetFullPath((Join-Path $root 'artifacts\live-smoke')).TrimEnd('\')+'\'
+  if(-not $previousProject.StartsWith($ownedDirectory,[StringComparison]::OrdinalIgnoreCase) -or -not (Test-Path -LiteralPath $previousProject -PathType Leaf)){throw 'Previous project is not an owned test file.'}
+  if(-not $expectedProject.StartsWith($ownedDirectory,[StringComparison]::OrdinalIgnoreCase) -or -not (Test-Path -LiteralPath $expectedProject -PathType Leaf) -or
+     [IO.Path]::GetExtension($expectedProject) -ine '.cpr' -or
+     -not [String]::Equals([IO.Path]::GetDirectoryName($expectedProject),[IO.Path]::GetDirectoryName($previousProject),[StringComparison]::OrdinalIgnoreCase) -or
+     ((Get-Item -LiteralPath $expectedProject).Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+     ((Get-Item -LiteralPath ([IO.Path]::GetDirectoryName($expectedProject))).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Next project is not an owned regular CPR in the previous project directory.'}
   $previousProcess=Get-Process -Id $PreviousProcessId
   if(-not [String]::Equals($previousProcess.MainModule.FileName,'C:\Program Files\Steinberg\Cubase 16\Cubase 16.exe',[StringComparison]::OrdinalIgnoreCase)){throw 'Previous executable mismatch.'}
+  $previousStart=$previousProcess.StartTime.ToUniversalTime();if($previousStart -gt (Get-Item -LiteralPath $lp).LastWriteTimeUtc.AddSeconds(2)){throw 'Previous process started after its receipt.'}
+  if($previousProcess.MainModule.BaseAddress.ToInt64() -ne 0x140000000 -or (Get-Item -LiteralPath $previousProcess.MainModule.FileName).VersionInfo.FileVersion -ne '16.0.5.174'){throw 'Previous executable profile mismatch.'}
   $armTime=[DateTime]::UtcNow;$result.armUtc=$armTime.ToString('o')
   $arm=Join-Path $root "artifacts\ipc\midi-startup-arm-$runId.json";$ticket=Join-Path $root "artifacts\ipc\midi-startup-ticket-$runId.json"
-  $armData=[ordered]@{status='ready';runId=$runId;tracePid=$PID;previousPid=$PreviousProcessId;project=$expectedProject;armUtc=$result.armUtc}|ConvertTo-Json
+  $armData=[ordered]@{status='ready';runId=$runId;tracePid=$PID;previousPid=$PreviousProcessId;previousStartUtc=$previousStart.ToString('o');previousProject=$previousProject;project=$expectedProject;armUtc=$result.armUtc}|ConvertTo-Json
   $armStream=[IO.File]::Open($arm,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read);try{$armWriter=[IO.StreamWriter]::new($armStream,[Text.UTF8Encoding]::new($false));try{$armWriter.Write($armData)}finally{$armWriter.Dispose()}}finally{$armStream.Dispose()}
   $wait=[Diagnostics.Stopwatch]::StartNew();$expectedHost=0;$launch=$null;$li=$null
   while($wait.Elapsed.TotalSeconds -lt 90){
@@ -87,6 +104,7 @@ try {
  } else {$li=Get-Item -LiteralPath $lp;$launch=Get-Content -LiteralPath $lp -Raw -Encoding UTF8|ConvertFrom-Json}
  $result.pid=$TargetProcessId
  if([int]$launch.ProcessId -ne $TargetProcessId -or $launch.Desktop -cne 'winsta0\CubaseAI_MCP'){throw 'Launch PID or desktop mismatch.'}
+ if($PSCmdlet.ParameterSetName -eq 'NextLaunch' -and (-not $launch.DesktopSwitchRestricted -or -not $launch.JobKillsOnLastHandleClose)){throw 'New launch does not report the required job restrictions.'}
  $p=Get-Process -Id $TargetProcessId;$start=$p.StartTime.ToUniversalTime();if($start -gt $li.LastWriteTimeUtc.AddSeconds(2)){throw 'Process started after launch metadata.'}
  if($result.armUtc -and $start -lt $armTime){throw 'New process predates trace arming.'}
  $path=$p.MainModule.FileName;if(-not [String]::Equals($path,'C:\Program Files\Steinberg\Cubase 16\Cubase 16.exe',[StringComparison]::OrdinalIgnoreCase)){throw 'Executable mismatch.'}
@@ -95,9 +113,9 @@ try {
  $result.processStartUtc=$start.ToString('o');$result.launchMetadataUtc=$li.LastWriteTimeUtc.ToString('o');$result.executable=$path;$result.version=$version;$result.peTimestamp=('0x{0:x}' -f $timestamp)
  $clock=[Diagnostics.Stopwatch]::StartNew();$samples=[Collections.Generic.List[object]]::new()
  do {
-  $row=[ordered]@{timestampUtc=[DateTime]::UtcNow.ToString('o');desktopWindows=$null;desktopStatus='pending';status='error';error=$null;data=$null}
+  $row=[ordered]@{timestampUtc=[DateTime]::UtcNow.ToString('o');desktopWindows=$null;privateTitles=@();desktopStatus='pending';input=$null;status='error';error=$null;data=$null}
   $terminal=$false
-  try {$now=Get-Process -Id $TargetProcessId;if($now.StartTime.ToUniversalTime() -ne $start){$terminal=$true;throw 'Process identity changed.'};$row.desktopWindows=[MidiStartupTrace]::Windows($TargetProcessId);if($row.desktopWindows -gt 0){$row.desktopStatus='observed'};$row.data=[MidiStartupTrace]::Read($TargetProcessId);$row.status=$row.data.status;$now=Get-Process -Id $TargetProcessId;if($now.StartTime.ToUniversalTime() -ne $start){$terminal=$true;throw 'Process identity changed after read.'}}catch{$row.status='error';$row.error=$_.Exception.ToString();if(-not (Get-Process -Id $TargetProcessId -ErrorAction SilentlyContinue)){$terminal=$true}}
+  try {$now=Get-Process -Id $TargetProcessId;if($now.StartTime.ToUniversalTime() -ne $start){$terminal=$true;throw 'Process identity changed.'};$row.input=[MidiStartupTrace]::Input();if($row.input.inputDesktop -ieq 'CubaseAI_MCP' -or $row.input.foregroundPid -eq $TargetProcessId){$result.backgroundViolation=$true};$windows=[MidiStartupTrace]::Windows($TargetProcessId);$row.desktopWindows=$windows.count;$row.privateTitles=@($windows.titles);if($row.desktopWindows -gt 0){$row.desktopStatus='observed'};$row.data=[MidiStartupTrace]::Read($TargetProcessId);$row.status=$row.data.status;$now=Get-Process -Id $TargetProcessId;if($now.StartTime.ToUniversalTime() -ne $start){$terminal=$true;throw 'Process identity changed after read.'}}catch{$row.status='error';$row.error=$_.Exception.ToString();if(-not (Get-Process -Id $TargetProcessId -ErrorAction SilentlyContinue)){$terminal=$true}}
   $samples.Add([pscustomobject]$row);if($terminal -or $clock.Elapsed.TotalSeconds -ge $DurationSeconds){break};$remaining=[int](1000*$DurationSeconds-$clock.ElapsedMilliseconds);if($remaining -gt 0){Start-Sleep -Milliseconds ([Math]::Min($IntervalMs,$remaining))}
  } while($clock.Elapsed.TotalSeconds -lt $DurationSeconds)
  $result.samples=$samples.ToArray();$result.status=if(@($samples | Where-Object {$_.status -eq 'error'}).Count){'error'}elseif(@($samples | Where-Object {$_.status -eq 'pending' -or $_.desktopStatus -eq 'pending'}).Count){'pending'}else{'observed'}

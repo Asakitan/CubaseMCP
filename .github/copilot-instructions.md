@@ -16,7 +16,7 @@
 - [x] Requirements and strict background constraints recorded.
 - [x] Project scaffold and dependencies installed.
 - [x] No editor extension installation required.
-- [x] Expanded controller integration and build complete (84 tests); coverage-3.6 installed and constructed in the isolated host, while its no-write handshake timed out and live validation remains open.
+- [x] Expanded controller integration and build complete (84 tests); coverage-3.6 is installed and constructed in the current isolated host. A previous host's no-write handshake timed out, and current live validation remains open.
 - [x] Native MIDI prerequisites and earlier real Cubase AI16.0.5 core-chain verification recorded.
 - [ ] Activate the current device/mapping without foreground input and verify the current live controller.
 - [ ] Implement and verify project creation, saving, event editing, rendering and remaining Cubase feature coverage.
