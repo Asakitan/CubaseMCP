@@ -3,12 +3,12 @@
 | Source | Runtime target | Status |
 | --- | --- | --- |
 | `src/config.ts` | `dist/src/config.js` | Literal policy parser verified |
-| `src/server.ts` | `dist/src/server.js` | 23 tools; current bridge gate and optional selected-channel runtime guards |
+| `src/server.ts` | `dist/src/server.js` | 23 tools; current bridge gate, selected-channel runtime guards and exact plug-in-bank identity schema |
 | `src/bridge-contract.ts` | `dist/src/bridge-contract.js` | Shared host/revision/active-session gate; operational readiness is explicit |
 | `src/doctor.ts` | `dist/src/doctor.js` | Reports operational readiness separately from handshake availability |
 | `src/midi.ts` | `dist/src/midi.js` | 15 tests passed; exact ports, deadline and fault latch |
 | `remote/protocol.js` | Driver folder and `dist/remote/protocol.js` | 2 protocol tests passed |
-| `remote/controller.js` | Driver folder | Coverage 3.6 installed; selected runtime/plug-in feedback guards fixture-tested; existing host logged 3.5 construction, activation unverified |
+| `remote/controller.js` | Driver folder | Coverage 3.7 installed; new identity-guarded plug-in banks fixture-tested; current host logged 3.6 construction, activation unverified |
 | `remote/CubaseAI_MCP.js` | Driver entry | Top-level CommonJS export removed; ES5 regression passed and current host logged controller construction |
 | `remote/commands.js` | Driver command allowlist | 3 fixed bindings; ES5 verified and installed |
 | `scripts/Install-Remote.ps1` | Local driver installation | Four files deployed; no Cubase launch |
@@ -83,7 +83,9 @@
 | `scripts/project-open-16-snapshot.ps1`, `scripts/project-open-16-inspect.py`, `scripts/project-open-lifetime-16-inspect.py`, `docs/project-open-16.md` | Host-open thread and ownership | Calling-thread comparison and saved thread ID observed; conditional path copies and message fields traced; delivery, full lifetime and completion unresolved |
 | `scripts/project-create-save-16-inspect.py`, `docs/project-create-save-16.md` | Additional save predicate | Local-volume branch narrowed; target, alerts and save completion unresolved |
 | `scripts/midi-activation-16-inspect.py`, `docs/midi-activation-16.md` | Scanner request-path follow-up | Output-collection return and conditional request-object submission traced; transmission and mapping unverified |
-| `docs/midi-coverage-3.6.md` | Selected-channel guards and verifier | Source and installed 3.6 fixture-tested and constructed; current no-write handshake timed out |
+| `docs/midi-coverage-3.6.md` | Selected-channel guards and verifier | Historical 3.6 fixture and host-construction evidence; later 3.7 activation remains unverified |
+| `docs/midi-plugin-banks-3.7.md` | Instrument and strip parameter-bank controls | Source and installed 3.7 fixture-tested; current host still logs 3.6 construction |
+| `native/ActivationSnapshot21.cpp`, `scripts/Build-ActivationSnapshot21.ps1`, `scripts/Read-ActivationCandidates21.ps1`, `docs/project-activation-stack-21.md` | Isolated process/thread context research | One fixed PSS context captured; separate stack reads are not synchronized and prompt decision remains unknown |
 | `tests/DesktopJobProbe.cs`, `tests/desktop-job-boundary.ps1`, `docs/background-desktop-job.md` | Restricted desktop job diagnostic | Synthetic job/desktop denial and isolated Cubase starts observed, including detached holder; no continuous foreground proof |
 | `tests/DetachedHolderProbe.ps1`, `tests/DetachedHolderStarter.ps1`, `tests/detached-holder-pipe.ps1` | Detached holder pipe check | Synthetic long-lived holder closes caller pipes; existing-instance guard also passed |
 | `docs/project-save-command.md` | Fixed Save binding contract | Installed example confirmed; noninteractive and completed save unverified |
@@ -118,3 +120,4 @@
 | 2026-11-10 | Added restricted desktop job and detached holder, restarted owned Cubase with 3.6, and recorded a no-write status timeout; no project lifecycle completion claimed. |
 | 2026-11-10 | Submitted one fixed isolated copied-project open and observed a private working-directory dialog; open remains unknown and was not replayed. |
 | 2026-11-10 | Added explicit same-directory startup sampling, verified detached launch and empty MIDI model, and submitted one distinct same-directory open; activation prompt observed, outcome unknown. |
+| 2026-11-10 | Added and installed guarded instrument/strip parameter banks, passed 89 tests, and captured one isolated thread context; live mapping and project lifecycle remain open. |

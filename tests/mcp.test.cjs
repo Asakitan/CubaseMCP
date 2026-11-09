@@ -99,12 +99,20 @@ test('MCP forwards selected-channel runtime guards to the current bridge', async
             expectedTrackUniqueId: 'track', expectedTrackRuntimeId: 7 };
         assert.equal((await client.callTool({ name: 'cubase_control_set', arguments: control })).isError, undefined);
         assert.deepEqual(requests.at(-1), { operation: 'controls.set', args: control });
+        const plugin = { ...control, key: 'track.instrument.parameter.0', expectedPluginIdentity: {
+            name: 'Synth', vendor: 'Vendor', version: '1', formatVersion: '3' } };
+        assert.equal((await client.callTool({ name: 'cubase_control_set', arguments: plugin })).isError, undefined);
+        assert.deepEqual(requests.at(-1), { operation: 'controls.set', args: plugin });
         const navigation = { session: 'current', direction: 'next', expectedUniqueId: 'track', expectedRuntimeId: 7 };
         assert.equal((await client.callTool({ name: 'cubase_track_navigate', arguments: navigation })).isError, undefined);
         assert.deepEqual(requests.at(-1), { operation: 'track.navigate', args: navigation });
         const before = requests.length;
         const invalid = await client.callTool({ name: 'cubase_control_set', arguments: { ...control, expectedTrackRuntimeId: -1 } });
         assert.equal(invalid.isError, true);
+        assert.equal(requests.length, before);
+        const invalidPlugin = await client.callTool({ name: 'cubase_control_set', arguments: {
+            ...plugin, expectedPluginIdentity: { ...plugin.expectedPluginIdentity, extra: 'unexpected' } } });
+        assert.equal(invalidPlugin.isError, true);
         assert.equal(requests.length, before);
     } finally {
         await client.close();

@@ -11,7 +11,7 @@ var MAX_OBJECTS = 2048;
 var MAX_TAGS = 8192;
 var MAX_PLUGINS = 8192;
 var MAX_INTEGER = 9007199254740991;
-var BRIDGE_REVISION = '2026-11-10-coverage-3.6';
+var BRIDGE_REVISION = '2026-11-10-coverage-3.7';
 
 function fail(code, message, details, execution) {
     var error = new Error(message);
@@ -788,7 +788,14 @@ function createController(api, logger) {
         if (typeof args.key !== 'string' || !controls[args.key]) fail('INVALID_CONTROL', 'Unknown control key.');
         if (args.key.indexOf('track.') === 0) selectedTrack();
         if (controls[args.key].bankIndex !== undefined) bankChannelIdentity(controls[args.key].bankIndex, true);
-        return { session: session, control: boundedMetadata(controlInfo(controls[args.key]), 0) };
+        var record = controls[args.key];
+        var info = boundedMetadata(controlInfo(record), 0);
+        if (record.pluginBankGroup) {
+            var identity = controlGroups[record.pluginBankGroup].pluginIdentity;
+            info.pluginIdentity = identity ? { name: identity.name, vendor: identity.vendor,
+                version: identity.version, formatVersion: identity.formatVersion } : null;
+        }
+        return { session: session, control: info };
     }
 
     function commandList() {
@@ -826,8 +833,8 @@ function createController(api, logger) {
         if (record.error) fail(record.error.code, record.error.message, record.error.details);
         if (record.readOnly) fail('READ_ONLY', 'This control only exposes host feedback.');
         var currentTrack = args.key.indexOf('track.') === 0 ? selectedTrack() : null;
-        if (args.key.indexOf('track.insert.') === 0 && args.expectedTrackUniqueId === undefined) {
-            fail('CONFIRMATION_REQUIRED', 'Insert viewer actions require expectedTrackUniqueId.');
+        if ((args.key.indexOf('track.insert.') === 0 || (record.pluginBankGroup && currentTrack)) && args.expectedTrackUniqueId === undefined) {
+            fail('CONFIRMATION_REQUIRED', 'Track plug-in controls require expectedTrackUniqueId.');
         }
         if (args.expectedTrackUniqueId !== undefined) {
             if (!currentTrack || typeof args.expectedTrackUniqueId !== 'string' || !args.expectedTrackUniqueId) {
@@ -865,12 +872,31 @@ function createController(api, logger) {
         } else if (args.expectedChannelUniqueId !== undefined) {
             fail('INVALID_ARGUMENT', 'expectedChannelUniqueId is only valid for a bank-channel control.');
         }
+        if (record.pluginBankGroup) {
+            var expectedPlugin = args.expectedPluginIdentity;
+            if (!expectedPlugin || typeof expectedPlugin !== 'object' || Array.isArray(expectedPlugin))
+                fail('CONFIRMATION_REQUIRED', 'expectedPluginIdentity is required.');
+            var identity = controlGroups[record.pluginBankGroup].pluginIdentity;
+            if (!identity || typeof identity.name !== 'string' || !identity.name ||
+                (currentTrack && (identity.trackUniqueId !== currentTrack.uniqueId || identity.trackRuntimeId !== currentTrack.runtimeId)) ||
+                (record.bankIndex !== undefined && (identity.channelUniqueId !== currentChannel.uniqueId || identity.channelRuntimeId !== currentChannel.runtimeId)))
+                fail('PLUGIN_UNOBSERVED', 'Observe the current plug-in identity before writing.');
+            if (['name', 'vendor', 'version', 'formatVersion'].some(function (field) {
+                return typeof expectedPlugin[field] !== 'string' || expectedPlugin[field] !== identity[field];
+            })) fail('PLUGIN_CHANGED', 'The plug-in identity changed before the control write.');
+        } else if (args.expectedPluginIdentity !== undefined) {
+            fail('INVALID_ARGUMENT', 'expectedPluginIdentity is only valid for a guarded plug-in bank control.');
+        }
         var value = normalized(args.value);
         if (record.action && value !== 1) fail('INVALID_VALUE', 'Action controls require value 1.');
         method(record.surface, 'setProcessValue');
         var before = record.observed;
         return submitted(function () {
-            if (record.action && args.key.indexOf('track.') === 0) clearTrackObservation();
+            if (record.action && record.pluginBankGroup) {
+                clearGroupObservation(record.pluginBankGroup);
+                controlGroups[record.pluginBankGroup].pluginIdentity = null;
+            }
+            if (record.action && args.key.indexOf('track.') === 0 && !record.pluginBankGroup) clearTrackObservation();
             if (record.action && args.key.indexOf('mixer.bank.') === 0) clearBankObservations();
             if (record.action && record.bankIndex !== undefined && args.key.indexOf('.insert.') !== -1) clearBankSlot(record.bankIndex);
             if (record.bankIndex !== undefined && /\.selected$/.test(args.key)) {
@@ -929,7 +955,7 @@ function createController(api, logger) {
             if (controls[key].bankIndex === index) { controls[key].observed = null; controls[key].display = null; }
         });
         Object.keys(controlGroups).forEach(function (key) {
-            if (key.indexOf('mixer.channel.' + index + '.insert.') === 0 &&
+            if (key.indexOf('mixer.channel.' + index + '.') === 0 &&
                 Object.prototype.hasOwnProperty.call(controlGroups[key], 'pluginIdentity')) controlGroups[key].pluginIdentity = null;
         });
         if (controlGroups['mixer.channel.' + index]) {
@@ -1329,9 +1355,11 @@ function createController(api, logger) {
         'mHostAccess.mTrackSelection.mMixerChannel');
     makeHostFields('track.cueSend.', 'mHostAccess.mTrackSelection.mMixerChannel.mCueSends', cueSends,
         [['bypass', 'mBypass']]);
+    var selectedInstrument = hostBranch(channel, 'mInstrumentPluginSlot', 'track.instrument');
     makeHostFields('track.instrument.', 'mHostAccess.mTrackSelection.mMixerChannel.mInstrumentPluginSlot',
-        hostBranch(channel, 'mInstrumentPluginSlot', 'track.instrument'),
+        selectedInstrument,
         [['on', 'mOn'], ['bypass', 'mBypass'], ['automationRead', 'mAutomationRead'], ['automationWrite', 'mAutomationWrite']]);
+    makePluginBank('track.instrument', 'mHostAccess.mTrackSelection.mMixerChannel.mInstrumentPluginSlot', selectedInstrument);
     var effects = hostBranch(channel, 'mInsertAndStripEffects', 'track.effects');
     var strip = hostBranch(effects, 'mStripEffects', 'track.strip');
     [['gate', 'mGate'], ['compressor', 'mCompressor'], ['limiter', 'mLimiter'],
@@ -1373,6 +1401,51 @@ function createController(api, logger) {
             makeActionControl(group + '.bank.' + actionEntry[0], group + '.mParameterBankZone.mAction.' + actionEntry[1], action);
         });
     });
+    function makePluginBank(group, path, slot, bankIndex) {
+        controlGroups[group].pluginIdentity = null;
+        if (slot) {
+            try {
+                slot.mOnChangePluginIdentity = function (device, mapping, name, vendor, version, format) {
+                    if (!activeDevice || !activeMapping || device !== activeDevice || mapping !== activeMapping) return;
+                    if ([name, vendor, version, format].some(function (v) { return typeof v !== 'string' || v.length > 4096; })) {
+                        clearGroupObservation(group);
+                        controlGroups[group].pluginIdentity = null;
+                        return;
+                    }
+                    try {
+                        var current = bankIndex === undefined ? selectedTrack() : bankChannelIdentity(bankIndex, false);
+                        clearGroupObservation(group);
+                        controlGroups[group].pluginIdentity = { name: name, vendor: vendor, version: version, formatVersion: format };
+                        var identity = controlGroups[group].pluginIdentity;
+                        if (bankIndex === undefined) { identity.trackUniqueId = current.uniqueId; identity.trackRuntimeId = current.runtimeId; }
+                        else { identity.channelUniqueId = current.uniqueId; identity.channelRuntimeId = current.runtimeId; }
+                    } catch (error) {
+                        clearGroupObservation(group);
+                        controlGroups[group].pluginIdentity = null;
+                        if (bankIndex === undefined) clearTrackObservation(); else markBankError(bankIndex, error);
+                    }
+                };
+            } catch (error) { controlGroups[group].identityError = errorData(error); }
+        }
+        var bank = hostBranch(slot, 'mParameterBankZone', group + '.bank');
+        for (var i = 0; i < 8; i++) {
+            var value = null, failure = null;
+            try { value = invoke(bank, 'makeParameterValue', []); } catch (error) { failure = errorData(error); }
+            var key = group + '.parameter.' + i;
+            makeControl(key, path + '.mParameterBankZone.makeParameterValue(' + i + ')', value, false);
+            controls[key].pluginBankGroup = group;
+            if (bankIndex !== undefined) controls[key].bankIndex = bankIndex;
+            if (failure) controls[key].error = failure;
+        }
+        [['previous', 'mPrevBank'], ['next', 'mNextBank'], ['reset', 'mResetBank']].forEach(function (entry) {
+            var action = null;
+            try { action = bank && bank.mAction && bank.mAction[entry[1]]; } catch (ignored) {}
+            var key = group + '.bank.' + entry[0];
+            makeActionControl(key, path + '.mParameterBankZone.mAction.' + entry[1], action);
+            controls[key].pluginBankGroup = group;
+            if (bankIndex !== undefined) controls[key].bankIndex = bankIndex;
+        });
+    }
     function makeInsertViewer(name, filter, index) {
         var group = 'track.insert.' + name;
         var path = 'mHostAccess.mTrackSelection.mMixerChannel.mInsertAndStripEffects.makeInsertEffectViewer(' + name + ')';
@@ -1616,13 +1689,16 @@ function createController(api, logger) {
             var bankInstrument = hostBranch(bankChannel, 'mInstrumentPluginSlot', channelGroup + '.instrument');
             makeHostFields(channelGroup + '.instrument.', bankPath + '.mInstrumentPluginSlot', bankInstrument,
                 [['on', 'mOn'], ['bypass', 'mBypass'], ['automationRead', 'mAutomationRead'], ['automationWrite', 'mAutomationWrite']], false, bankIndex);
+            makePluginBank(channelGroup + '.instrument', bankPath + '.mInstrumentPluginSlot', bankInstrument, bankIndex);
             var bankStrip = hostBranch(bankEffects, 'mStripEffects', channelGroup + '.strip');
             [['gate', 'mGate'], ['compressor', 'mCompressor'], ['limiter', 'mLimiter'],
                 ['saturator', 'mSaturator'], ['tools', 'mTools']].forEach(function (entry) {
                 var group = channelGroup + '.strip.' + entry[0];
-                makeHostFields(group + '.', bankPath + '.mInsertAndStripEffects.mStripEffects.' + entry[1],
-                    hostBranch(bankStrip, entry[1], group),
+                var bankStripSlot = hostBranch(bankStrip, entry[1], group);
+                var stripPath = bankPath + '.mInsertAndStripEffects.mStripEffects.' + entry[1];
+                makeHostFields(group + '.', stripPath, bankStripSlot,
                     [['on', 'mOn'], ['bypass', 'mBypass'], ['automationRead', 'mAutomationRead'], ['automationWrite', 'mAutomationWrite']], false, bankIndex);
+                makePluginBank(group, stripPath, bankStripSlot, bankIndex);
             });
         }
     }

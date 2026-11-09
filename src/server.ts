@@ -104,11 +104,15 @@ export function createServer(config: Configuration = loadConfig()) {
     expose('cubase_control_get', 'controls.get', 'Read one declared control, its availability, read-only status and last host feedback.', {
         ...session, key: z.string().min(1).max(100)
     });
-    expose('cubase_control_set', 'controls.set', 'Set one declared background control by key; value is normalized 0..1. Bank channel writes require a previously observed expectedChannelUniqueId. Optionally guard a track control using both its unique and runtime IDs. Buttons may be momentary. Does not open or focus a window.', {
+    expose('cubase_control_set', 'controls.set', 'Set one declared background control by key; value is normalized 0..1. Bank channel writes require a previously observed expectedChannelUniqueId. New plug-in bank controls require the exact pluginIdentity from cubase_control_get. Optionally guard a track control using both its unique and runtime IDs. Buttons may be momentary. Does not open or focus a window.', {
         ...session, key: z.string().min(1).max(100), value: z.number().min(0).max(1),
         expectedTrackUniqueId: z.string().min(1).max(512).optional(),
         expectedTrackRuntimeId: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
-        expectedChannelUniqueId: z.string().min(1).max(512).optional()
+        expectedChannelUniqueId: z.string().min(1).max(512).optional(),
+        expectedPluginIdentity: z.object({
+            name: z.string().min(1).max(4096), vendor: z.string().max(4096),
+            version: z.string().max(4096), formatVersion: z.string().max(4096)
+        }).strict().optional()
     }, false);
     expose('cubase_tempo_set', 'transport.tempo', 'Submit a tempo in BPM through the native transport API. The host determines its supported range; inspect the observed tempo before assuming completion.', {
         ...session, bpm: z.number().finite().positive()

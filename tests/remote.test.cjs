@@ -18,7 +18,7 @@ test('large host maxima and error messages preserve compact handshake and bounde
         page.makeValueBinding = () => { throw new Error('unavailable-' + 'x'.repeat(5000)); };
     });
     assert.equal(harness.status.ok, true, JSON.stringify(harness.status));
-    assert.equal(harness.status.data.bridgeRevision, '2026-11-10-coverage-3.6');
+    assert.equal(harness.status.data.bridgeRevision, '2026-11-10-coverage-3.7');
     let offset = 0;
     const keys = [];
     do {
@@ -885,9 +885,9 @@ test('factory registers exact ports and reports only real app and root data', ()
     assert.deepEqual(harness.detectionNames, harness.portNames);
     const status = harness.status.data;
     assert.equal(status.appVersion, '16.0.5');
-    assert.equal(status.bridgeRevision, '2026-11-10-coverage-3.6');
+    assert.equal(status.bridgeRevision, '2026-11-10-coverage-3.7');
     assert.deepEqual(status.policy, { backgroundOnly: true, fallback: false });
-    assert.equal(status.discovery.controlTotal, 124);
+    assert.equal(status.discovery.controlTotal, 135);
     assert.equal(harness.call('objects.list', { root: 'trackSelection' }).data.baseObject.uniqueIdString, 'uid-1');
     assert.ok(listAll(harness).controls.every(control => control.observed === null));
     assert.deepEqual(harness.call('commands.list').data.commands.map(command => command.key), commands.map(command => command.key));
@@ -1368,4 +1368,147 @@ test('a throwing edition-specific host branch does not prevent the bridge from s
     assert.match(listed.groups['track.eq'].error.message, /native branch unavailable/);
     expectError(harness.call('controls.set', { key: 'track.eq.1.gain', value: 0.5 }), 'API_UNAVAILABLE');
     assert.equal(harness.call('controls.set', { key: 'track.volume', value: 0.5 }).ok, true);
+});
+
+function pluginPageFixture() {
+    const slots = [], ids = Array.from({ length: 8 }, (_, i) => `plugin-channel-${i}`);
+    const runtimes = ids.map((_, i) => 100 + i);
+    let trackRuntime = 2, trackSlot;
+    function plugin() {
+        return { mParameterBankZone: { makeParameterValue: () => ({}),
+            mAction: { mPrevBank: {}, mNextBank: {}, mResetBank: {} } } };
+    }
+    const harness = fixture((api, state, { host }) => {
+        trackSlot = plugin();
+        host.mTrackSelection.mMixerChannel.mInstrumentPluginSlot = trackSlot;
+        host.mTrackSelection.mMixerChannel.getRuntimeID = () => trackRuntime;
+        host.mMixConsole.makeMixerBankZone = () => {
+            let index = 0;
+            return { mAction: { mNextBank: {} }, makeMixerBankChannel() {
+                const n = index++, strip = {};
+                for (const name of ['mGate', 'mCompressor', 'mLimiter', 'mSaturator', 'mTools']) strip[name] = plugin();
+                const channel = { mValue: {}, getUniqueIDString: () => ids[n], getRuntimeID: () => runtimes[n],
+                    mInstrumentPluginSlot: plugin(), mInsertAndStripEffects: { mStripEffects: strip } };
+                slots.push(channel); return channel;
+            } };
+        };
+    });
+    return { harness, trackSlot, slots, ids, runtimes, setTrackRuntime(value) { trackRuntime = value; } };
+}
+
+const pluginIdentity = { name: 'Synth', vendor: 'Vendor', version: '1', formatVersion: '3' };
+function observePlugin(h, slot, identity = pluginIdentity, device = h.device, mapping = h.currentMapping()) {
+    slot.mOnChangePluginIdentity(device, mapping, identity.name, identity.vendor, identity.version, identity.formatVersion);
+}
+function checkPluginIdentity(actual, expected) {
+    assert.ok(actual);
+    for (const key of Object.keys(expected)) assert.equal(actual[key], expected[key]);
+}
+
+test('instrument and bank strip parameter pages bind all slots with guarded feedback and writes', () => {
+    const { harness: h, trackSlot, slots, ids } = pluginPageFixture();
+    const targets = [['track.instrument', trackSlot, { expectedTrackUniqueId: 'track-uid-2' }]];
+    for (const index of [0, 7]) {
+        targets.push([`mixer.channel.${index}.instrument`, slots[index].mInstrumentPluginSlot, { expectedChannelUniqueId: ids[index] }]);
+        for (const [name, field] of [['gate', 'mGate'], ['compressor', 'mCompressor'], ['limiter', 'mLimiter'],
+            ['saturator', 'mSaturator'], ['tools', 'mTools']])
+            targets.push([`mixer.channel.${index}.strip.${name}`, slots[index].mInsertAndStripEffects.mStripEffects[field],
+                { expectedChannelUniqueId: ids[index] }]);
+    }
+    for (const [group, slot, guard] of targets) {
+        const key = group + '.parameter.7';
+        for (let i = 0; i < 8; i++) assert.equal(h.call('controls.get', { key: group + '.parameter.' + i }).data.control.available, true);
+        observePlugin(h, slot);
+        const control = h.call('controls.get', { key }).data.control;
+        checkPluginIdentity(control.pluginIdentity, pluginIdentity);
+        h.emit(key, 0.37);
+        assert.equal(h.call('controls.get', { key }).data.control.observed.value, 0.37);
+        assert.equal(h.call('controls.set', { key, value: 0.6, ...guard, expectedPluginIdentity: pluginIdentity }).data.execution, 'submitted');
+        assert.equal(h.writes.at(-1).key, key);
+        for (const action of ['previous', 'next', 'reset'])
+            assert.equal(h.call('controls.get', { key: group + '.bank.' + action }).data.control.available, true);
+    }
+    assert.notEqual(h.surfaces['mixer.channel.0.instrument.parameter.7'].hostValue,
+        h.surfaces['mixer.channel.7.instrument.parameter.7'].hostValue);
+});
+
+test('plugin identity guards reject absent, invalid, stale and wrong callback identities', () => {
+    const { harness: h, trackSlot } = pluginPageFixture();
+    const key = 'track.instrument.parameter.7', track = { expectedTrackUniqueId: 'track-uid-2' };
+    expectError(h.call('controls.set', { key, value: 0.5, ...track }), 'CONFIRMATION_REQUIRED');
+    expectError(h.call('controls.set', { key, value: 0.5, ...track, expectedPluginIdentity: pluginIdentity }), 'PLUGIN_UNOBSERVED');
+    observePlugin(h, trackSlot, pluginIdentity, {});
+    observePlugin(h, trackSlot, pluginIdentity, h.device, {});
+    expectError(h.call('controls.set', { key, value: 0.5, ...track, expectedPluginIdentity: pluginIdentity }), 'PLUGIN_UNOBSERVED');
+    observePlugin(h, trackSlot, { ...pluginIdentity, name: '' });
+    expectError(h.call('controls.set', { key, value: 0.5, ...track, expectedPluginIdentity: pluginIdentity }), 'PLUGIN_UNOBSERVED');
+    observePlugin(h, trackSlot);
+    expectError(h.call('controls.set', { key: 'track.volume', value: 0.5,
+        expectedPluginIdentity: pluginIdentity }), 'INVALID_ARGUMENT');
+    h.emit(key, 0.3);
+    trackSlot.mOnChangePluginIdentity(h.device, h.currentMapping(), null, 'Vendor', '1', '3');
+    assert.equal(h.call('controls.get', { key }).data.control.pluginIdentity, null);
+    assert.equal(h.call('controls.get', { key }).data.control.observed, null);
+    expectError(h.call('controls.set', { key, value: 0.5, ...track, expectedPluginIdentity: pluginIdentity }), 'PLUGIN_UNOBSERVED');
+    observePlugin(h, trackSlot);
+    expectError(h.call('controls.set', { key, value: 0.5, expectedPluginIdentity: pluginIdentity }), 'CONFIRMATION_REQUIRED');
+    expectError(h.call('controls.set', { key, value: 0.5, expectedTrackUniqueId: 'other', expectedPluginIdentity: pluginIdentity }), 'TRACK_CHANGED');
+    for (const field of Object.keys(pluginIdentity))
+        expectError(h.call('controls.set', { key, value: 0.5, ...track,
+            expectedPluginIdentity: { ...pluginIdentity, [field]: 'different' } }), 'PLUGIN_CHANGED');
+    h.emit(key, 0.4);
+    observePlugin(h, trackSlot, { ...pluginIdentity, name: 'Replacement' });
+    assert.equal(h.call('controls.get', { key }).data.control.observed, null);
+    expectError(h.call('controls.set', { key, value: 0.5, ...track, expectedPluginIdentity: pluginIdentity }), 'PLUGIN_CHANGED');
+    h.deactivate(); h.activate();
+    expectError(h.call('controls.set', { key, value: 0.5, ...track, expectedPluginIdentity: pluginIdentity }), 'STALE_SESSION');
+});
+
+test('plugin page navigation and channel or track runtime changes revoke identities', () => {
+    const f = pluginPageFixture(), h = f.harness;
+    const trackKey = 'track.instrument.parameter.7', bankKey = 'mixer.channel.7.instrument.parameter.7';
+    const tg = { expectedTrackUniqueId: 'track-uid-2', expectedPluginIdentity: pluginIdentity };
+    const bg = { expectedChannelUniqueId: f.ids[7], expectedPluginIdentity: pluginIdentity };
+    h.call('controls.get', { key: bankKey });
+    observePlugin(h, f.trackSlot); observePlugin(h, f.slots[7].mInstrumentPluginSlot);
+    expectError(h.call('controls.set', { key: 'track.instrument.bank.next', value: 0.5, ...tg }), 'INVALID_VALUE');
+    h.emit(trackKey, 0.2);
+    assert.equal(h.call('controls.set', { key: 'track.instrument.bank.next', value: 1, ...tg }).data.execution, 'submitted');
+    assert.equal(h.call('controls.get', { key: trackKey }).data.control.observed, null);
+    expectError(h.call('controls.set', { key: trackKey, value: 0.2, ...tg }), 'PLUGIN_UNOBSERVED');
+    observePlugin(h, f.trackSlot); f.setTrackRuntime(3);
+    expectError(h.call('controls.set', { key: trackKey, value: 0.2, ...tg }), 'PLUGIN_UNOBSERVED');
+    h.emit(bankKey, 0.3);
+    assert.equal(h.call('controls.set', { key: 'mixer.channel.7.instrument.bank.reset', value: 1, ...bg }).data.execution, 'submitted');
+    assert.equal(h.call('controls.get', { key: bankKey }).data.control.observed, null);
+    expectError(h.call('controls.set', { key: bankKey, value: 0.2, ...bg }), 'PLUGIN_UNOBSERVED');
+    observePlugin(h, f.slots[7].mInstrumentPluginSlot); f.runtimes[7]++;
+    expectError(h.call('controls.set', { key: bankKey, value: 0.2, ...bg }), 'CHANNEL_CHANGED');
+});
+
+test('new plugin parameter pages report missing host branches', () => {
+    const h = fixture((api, state, { host }) => {
+        delete host.mTrackSelection.mMixerChannel.mInstrumentPluginSlot;
+        host.mMixConsole.makeMixerBankZone = () => ({ makeMixerBankChannel: () => ({
+            mValue: {}, getUniqueIDString: () => 'id', getRuntimeID: () => 1 }) });
+    });
+    for (const key of ['track.instrument.parameter.0', 'track.instrument.bank.next',
+        'mixer.channel.7.instrument.parameter.7', 'mixer.channel.7.strip.gate.parameter.7'])
+        assert.equal(h.call('controls.get', { key }).data.control.error.code, 'API_UNAVAILABLE');
+});
+
+test('plugin get preserves long identity fields for exact guards without expanding list summaries', () => {
+    const { harness: h, trackSlot } = pluginPageFixture();
+    const identity = Object.fromEntries(Object.keys(pluginIdentity).map(field => [field, field + '-'.repeat(150) + 'tail']));
+    const key = 'track.instrument.parameter.7', guard = { expectedTrackUniqueId: 'track-uid-2' };
+    observePlugin(h, trackSlot, identity);
+    const item = h.call('controls.get', { key }).data.control;
+    checkPluginIdentity(item.pluginIdentity, identity);
+    assert.equal(h.call('controls.set', { key, value: 0.5, ...guard, expectedPluginIdentity: identity }).data.execution, 'submitted');
+    for (const field of Object.keys(identity))
+        expectError(h.call('controls.set', { key, value: 0.5, ...guard,
+            expectedPluginIdentity: { ...identity, [field]: identity[field].slice(0, -1) + 'X' } }), 'PLUGIN_CHANGED');
+    const listed = listAll(h).controls.find(control => control.key === key);
+    if (listed.pluginIdentity) for (const field of Object.keys(identity))
+        assert.ok(listed.pluginIdentity[field].length <= 129);
 });
