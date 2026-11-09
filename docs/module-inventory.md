@@ -3,12 +3,12 @@
 | Source | Runtime target | Status |
 | --- | --- | --- |
 | `src/config.ts` | `dist/src/config.js` | Literal policy parser verified |
-| `src/server.ts` | `dist/src/server.js` | 23 tools; current bridge gate, selected-channel runtime guards and exact plug-in-bank identity schema |
+| `src/server.ts` | `dist/src/server.js` | 24 tools; current bridge gate, guarded parameter edit-lock setter and plug-in-bank identity schema |
 | `src/bridge-contract.ts` | `dist/src/bridge-contract.js` | Shared host/revision/active-session gate; operational readiness is explicit |
 | `src/doctor.ts` | `dist/src/doctor.js` | Reports operational readiness separately from handshake availability |
 | `src/midi.ts` | `dist/src/midi.js` | 15 tests passed; exact ports, deadline and fault latch |
 | `remote/protocol.js` | Driver folder and `dist/remote/protocol.js` | 2 protocol tests passed |
-| `remote/controller.js` | Driver folder | Coverage 3.7 installed; new identity-guarded plug-in banks fixture-tested; current host logged 3.6 construction, activation unverified |
+| `remote/controller.js` | Driver folder | Coverage 3.8 installed; edit-lock and plug-in banks fixture-tested; current host logged 3.6 construction, activation unverified |
 | `remote/CubaseAI_MCP.js` | Driver entry | Top-level CommonJS export removed; ES5 regression passed and current host logged controller construction |
 | `remote/commands.js` | Driver command allowlist | 3 fixed bindings; ES5 verified and installed |
 | `scripts/Install-Remote.ps1` | Local driver installation | Four files deployed; no Cubase launch |
@@ -56,7 +56,7 @@
 | `scripts/dawproject-filter-inspect.py`, `docs/dawproject-host-filter.md` | Installed DAWproject filter investigation | Loaded in the isolated host; independent metadata query and static import chain do not prove a project operation |
 | `scripts/dawproject-package-client-inspect.py`, `docs/dawproject-package-client.md` | DAWproject package and host context research | Package preparation can create directories; ownership and concrete `MProject` IID match remain static evidence |
 | `scripts/Read-DawprojectHostContext.ps1`, `scripts/dawproject-host-context-inspect.py`, `docs/dawproject-host-context.md` | Read-only host context and listener investigation | MProject/MRoot vtables and informer listener membership observed; active-project and import semantics unverified |
-| `scripts/Read-DawprojectRootField.ps1`, `docs/dawproject-active-project.md` | Read-only MRoot field investigation | A tempo-track event and its interface were observed; no arrangement or lifecycle operation claimed |
+| `scripts/Read-DawprojectRootField.ps1`, `docs/dawproject-active-project.md`, `docs/project-tempo-field-22.md` | Read-only MRoot field investigation | A tempo-track event was observed; a static import-to-float trace has unknown units and proves no lifecycle operation |
 | `docs/project-save-target.md` | Native save destination and cleanup investigation | Conditional file deletion and creation paths identified; exact targets and recovery semantics unresolved |
 | `scripts/Trace-MidiStartup.ps1`, `docs/midi-startup-timeline.md` | Isolated read-only startup snapshots | Explicit same-directory next CPR, bounded listener/tree and desktop/title samples; diagnostic only |
 | `tests/background-launch-pipe.ps1` | Focused background-launch contract check | Existing-instance guard returned through captured stdout with separate holder logs; a fresh launch was not tested by this check |
@@ -83,9 +83,12 @@
 | `scripts/project-open-16-snapshot.ps1`, `scripts/project-open-16-inspect.py`, `scripts/project-open-lifetime-16-inspect.py`, `docs/project-open-16.md` | Host-open thread and ownership | Calling-thread comparison and saved thread ID observed; conditional path copies and message fields traced; delivery, full lifetime and completion unresolved |
 | `scripts/project-create-save-16-inspect.py`, `docs/project-create-save-16.md` | Additional save predicate | Local-volume branch narrowed; target, alerts and save completion unresolved |
 | `scripts/midi-activation-16-inspect.py`, `docs/midi-activation-16.md` | Scanner request-path follow-up | Output-collection return and conditional request-object submission traced; transmission and mapping unverified |
-| `docs/midi-coverage-3.6.md` | Selected-channel guards and verifier | Historical 3.6 fixture and host-construction evidence; later 3.7 activation remains unverified |
-| `docs/midi-plugin-banks-3.7.md` | Instrument and strip parameter-bank controls | Source and installed 3.7 fixture-tested; current host still logs 3.6 construction |
+| `docs/midi-coverage-3.6.md` | Selected-channel guards and verifier | Historical 3.6 fixture and host-construction evidence; later 3.8 activation remains unverified |
+| `docs/midi-plugin-banks-3.7.md` | Instrument and strip parameter-bank controls | 3.7 fixture and historical deployment evidence; 3.8 is installed and the current host still logs 3.6 construction |
 | `native/ActivationSnapshot21.cpp`, `scripts/Build-ActivationSnapshot21.ps1`, `scripts/Read-ActivationCandidates21.ps1`, `docs/project-activation-stack-21.md` | Isolated process/thread context research | One fixed PSS context captured; separate stack reads are not synchronized and prompt decision remains unknown |
+| `docs/midi-parameter-lock-3.8.md` | DirectAccess edit-lock setter | Guarded setter fixture-tested and installed; live mapping and mutation unverified |
+| `scripts/Read-ActivationPredicates22.ps1`, `scripts/Read-ProjectList22.ps1`, `scripts/Read-ProjectRootDocuments22.ps1`, `docs/project-activation-static-22.md`, `docs/project-activation-predicates-22.md`, `docs/project-list-22.md`, `docs/project-root-documents-22.md` | Activation branch and post-prompt project candidates | Two distinct root/document/path candidates observed; no activation, completion or persistence claim |
+| `native/ActivationClone22.cpp`, `scripts/Build-ActivationClone22.ps1`, `docs/project-activation-clone-22.md` | Synthetic-only PSS clone/stack walk | Built; one synthetic run failed stack-progress and clone-wait checks, with no Cubase clone |
 | `tests/DesktopJobProbe.cs`, `tests/desktop-job-boundary.ps1`, `docs/background-desktop-job.md` | Restricted desktop job diagnostic | Synthetic job/desktop denial and isolated Cubase starts observed, including detached holder; no continuous foreground proof |
 | `tests/DetachedHolderProbe.ps1`, `tests/DetachedHolderStarter.ps1`, `tests/detached-holder-pipe.ps1` | Detached holder pipe check | Synthetic long-lived holder closes caller pipes; existing-instance guard also passed |
 | `docs/project-save-command.md` | Fixed Save binding contract | Installed example confirmed; noninteractive and completed save unverified |
@@ -121,3 +124,4 @@
 | 2026-11-10 | Submitted one fixed isolated copied-project open and observed a private working-directory dialog; open remains unknown and was not replayed. |
 | 2026-11-10 | Added explicit same-directory startup sampling, verified detached launch and empty MIDI model, and submitted one distinct same-directory open; activation prompt observed, outcome unknown. |
 | 2026-11-10 | Added and installed guarded instrument/strip parameter banks, passed 89 tests, and captured one isolated thread context; live mapping and project lifecycle remain open. |
+| 2026-11-10 | Added and installed guarded edit-lock setter, passed 91 tests, traced activation and a tempo-field import path, and observed two root/path candidates; synthetic clone validation failed. |

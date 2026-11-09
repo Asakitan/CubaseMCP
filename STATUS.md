@@ -1,10 +1,19 @@
 # Cubase AI 16 MCP
 
-Version: 0.1.0. The complete user goal remains active and is not achieved. The current server has 23 MIDI Remote tools; project creation, saving, event editing and parameterized rendering are not implemented, and current live MIDI operations have not passed.
+Version: 0.1.0. The complete user goal remains active and is not achieved. The current server has 24 MIDI Remote tools; project creation, saving, event editing and parameterized rendering are not implemented, and current live MIDI operations have not passed.
 
-## Current session 21 evidence
+## Current session 22 evidence
 
-- Source and installed controller revision `2026-11-10-coverage-3.7` add selected-channel instrument and bank-channel instrument/strip parameter banks. Each new group has eight parameters and fixed page actions guarded by current channel identity and a matching observed plug-in identity; the callback and host state are not atomic (`docs/midi-plugin-banks-3.7.md`). The previous four installed files were preserved under `artifacts/runtime/before-coverage-3.7-ecf9144a8b934d009971c9268beaa6c6`, and the intermediate 3.7 files were backed up before the malformed-callback fix.
+- Revision `2026-11-10-coverage-3.8` adds `cubase_parameter_edit_lock_set`: a discovered object/tag, matching current Boolean lock state and current session are required before one DirectAccess setter submission. The prior 3.7 files were backed up and 3.8 installed; the TypeScript build and full suite passed **91/91**. Existing PID 24036 still logged only 3.6 construction after deployment, so 3.8 activation and the new operation remain unverified live (`docs/midi-parameter-lock-3.8.md`).
+- Static inspection located the activation prompt key's consumer and its conditional host-open branch (`docs/project-activation-static-22.md`). A separate post-prompt read observed the application predicate fields and a two-item `CmLinkedList`-shaped project container (`docs/project-activation-predicates-22.md`, `docs/project-list-22.md`); these snapshots do not prove gate-time values.
+- A bounded follow-up correlated both root candidates through `MRoot+0x180` and `PArrangement+0x108` to separate path candidates: the non-global root matched the new probe filename and the global root matched the startup filename. The data is unlocked and does not establish active selection, completed open, semantic contents or persistence (`docs/project-root-documents-22.md`).
+- Static analysis traced a DAWproject source double through conversion to an `MTempoTrackEvent` float field; its meaning and units are not yet identified, and this is not an observed BPM or saved value (`docs/project-tempo-field-22.md`).
+- A synthetic-only PSS clone experiment built but returned exit 1: its stack-progress check failed and a two-second clone-monitor wait timed out despite successful snapshot-free return. No Cubase clone was taken; the walk and cleanup interpretation remain open (`docs/project-activation-clone-22.md`).
+- Both earlier open submissions remain `unknown`, the private prompt was not operated, and no prior MIDI request was replayed. Full project lifecycle and Cubase coverage remain incomplete.
+
+## Session 21 evidence
+
+- At session 21, source and installed controller revision `2026-11-10-coverage-3.7` added selected-channel instrument and bank-channel instrument/strip parameter banks. Each new group has eight parameters and fixed page actions guarded by current channel identity and a matching observed plug-in identity; the callback and host state are not atomic (`docs/midi-plugin-banks-3.7.md`). The previous four installed files were preserved under `artifacts/runtime/before-coverage-3.7-ecf9144a8b934d009971c9268beaa6c6`, and the intermediate 3.7 files were backed up before the malformed-callback fix.
 - The TypeScript build and full suite passed **89/89** after updating an obsolete fixed control-count assertion; five focused plug-in-bank tests also passed. After final deployment, the existing PID 24036 console still recorded only 3.6 construction (`artifacts/ipc/midi-script-after-final-3.7-24036.json`). The process was not restarted and no prior unknown request was replayed, so 3.7 mapping activation and its new controls remain unverified live.
 - A fixed external Windows process-snapshot diagnostic captured the isolated event thread's control context without UI input, target-code modification or injection. Captured RIP maps to the local `win32u.dll` `NtUserGetMessage` stub; register context and later stack reads are not synchronized, so this is not a proven prompt call chain or project-open result (`docs/project-activation-stack-21.md`). The PSS API documentation does not establish zero transient scheduling impact.
 - The private activation prompt remains unoperated and both prior open submissions remain `unknown`. Real project create/save/edit/reopen/render and full Cubase coverage remain incomplete.
@@ -115,7 +124,7 @@ Version: 0.1.0. The complete user goal remains active and is not achieved. The c
 
 ## Code and verification
 
-- TypeScript build passed; the current `npm test` run passed **89/89**, with no skipped tests. The earlier `tests/midi-port-clients.ps1` passed against the installed virtualMIDI driver. Fixture results are not live Cubase feature certification.
+- TypeScript build passed; the current `npm test` run passed **91/91**, with no skipped tests. The earlier `tests/midi-port-clients.ps1` passed against the installed virtualMIDI driver. Fixture results are not live Cubase feature certification.
 - Earlier source/server and installed controller revision `2026-11-10-coverage-3.3` added eight identity-guarded mixer bank channel slots to revision 3.2's fixed insert viewers and guarded actions, strip parameter banks, Control Room selectors, compact status, independent paging and lifecycle messages. Cubase logged construction, but its mapping and new controls have not been live-verified. A large-host fixture reproduced the old oversized status failure before pagination. Long identity strings remain exact. The replaced controller and test CPR were preserved under `artifacts/runtime/before-coverage-3.3-20261110-040212`.
 - All session operations enforce the current revision, Cubase major version and session. Submitted writes and timeouts are not reported as completed mutations. The live verifier now queries an individual volume control rather than assuming its position in a list page.
 - Native probes and static analysis are diagnostics only. They do not expose arbitrary RPC, modify host instructions or provide a second runtime execution route. `docs/project-lifecycle-contract.md` records candidate open-project paths and unresolved threading/dialog contracts.
@@ -125,7 +134,7 @@ Version: 0.1.0. The complete user goal remains active and is not achieved. The c
 1. Establish and activate the MIDI Remote device/mapping through a repeatable background-native path; verify the current revision with an actual handshake and focused real-host control read/write/restore.
 2. Recover and verify a native project creation/open/save contract, then implement real MCP lifecycle operations and disk-persistence checks without dialogs or foreground input.
 3. Implement and verify MIDI/audio event editing, track lifecycle, parameterized rendering and all remaining Cubase feature families requested by the user. Preserve actual edition/host availability rather than inventing success.
-4. Complete the remaining declaration-backed mixer and insert-viewer writes recorded in `docs/midi-coverage-audit.md`; neither its fixture coverage nor the 23-tool count proves complete Cubase coverage.
+4. Complete the remaining declaration-backed mixer and insert-viewer writes recorded in `docs/midi-coverage-audit.md`; neither its fixture coverage nor the 24-tool count proves complete Cubase coverage.
 
 ## Historical evidence
 

@@ -18,7 +18,7 @@ test('large host maxima and error messages preserve compact handshake and bounde
         page.makeValueBinding = () => { throw new Error('unavailable-' + 'x'.repeat(5000)); };
     });
     assert.equal(harness.status.ok, true, JSON.stringify(harness.status));
-    assert.equal(harness.status.data.bridgeRevision, '2026-11-10-coverage-3.7');
+    assert.equal(harness.status.data.bridgeRevision, '2026-11-10-coverage-3.8');
     let offset = 0;
     const keys = [];
     do {
@@ -559,7 +559,7 @@ function fixture(configure = () => {}, logger) {
     let mapping = {};
     const nodes = new Map();
     const state = {
-        version: '16.0.5', writes: [], pluginWrites: [], commandRuns: [], surfaces: {}, tempoWrites: [], timeWrites: [], trackMoves: [],
+        version: '16.0.5', writes: [], lockWrites: [], pluginWrites: [], commandRuns: [], surfaces: {}, tempoWrites: [], timeWrites: [], trackMoves: [],
         accesses: {}, portNames: [], detectionNames: [], frames: [], replies: [],
         commandAllowed: true, pluginAccepted: true, selectedTrackId: 'track-uid-2'
     };
@@ -615,6 +615,11 @@ function fixture(configure = () => {}, logger) {
             getParameterDisplayUnits() { return '%'; },
             getParameterProcessValueType() { return 'Float'; },
             getParameterEditLockState(activeMapping, objectId, tag) { return parameter(objectId, tag).locked; },
+            setParameterEditLockState(activeMapping, objectId, tag, locked) {
+                assert.equal(activeMapping, mapping);
+                state.lockWrites.push({ objectId, tag, locked });
+                parameter(objectId, tag).locked = locked;
+            },
             isParameterAutomatable() { return true; },
             convertParameterProcessValueToPlain(activeMapping, objectId, tag, value) { return value * 100; },
             convertParameterPlainToProcessValue(activeMapping, objectId, tag, value) { return Math.max(0, Math.min(1, value / 100)); },
@@ -885,7 +890,7 @@ test('factory registers exact ports and reports only real app and root data', ()
     assert.deepEqual(harness.detectionNames, harness.portNames);
     const status = harness.status.data;
     assert.equal(status.appVersion, '16.0.5');
-    assert.equal(status.bridgeRevision, '2026-11-10-coverage-3.7');
+    assert.equal(status.bridgeRevision, '2026-11-10-coverage-3.8');
     assert.deepEqual(status.policy, { backgroundOnly: true, fallback: false });
     assert.equal(status.discovery.controlTotal, 135);
     assert.equal(harness.call('objects.list', { root: 'trackSelection' }).data.baseObject.uniqueIdString, 'uid-1');
@@ -996,6 +1001,53 @@ test('single parameter reads require a discovered current object and tag', () =>
     expectError(harness.call('parameters.get', args), 'PARAMETER_STALE');
     expectError(harness.call('parameters.get', args), 'PARAMETER_UNOBSERVED');
     assert.equal(harness.writes.length, 0);
+});
+
+test('parameter edit locks require observed identity and matching host lock state', () => {
+    const h = fixture();
+    const args = { root: 'trackSelection', objectId: 2, tag: 101, locked: true, expectedLocked: false };
+    expectError(h.call('parameters.lock', args), 'OBJECT_UNOBSERVED');
+    h.call('objects.list', { root: 'trackSelection' });
+    expectError(h.call('parameters.lock', args), 'PARAMETER_UNOBSERVED');
+    h.call('parameters.list', { root: 'trackSelection', objectId: 2 });
+    expectError(h.call('parameters.lock', { ...args, locked: 1 }), 'INVALID_ARGUMENT');
+    expectError(h.call('parameters.lock', { ...args, expectedLocked: true }), 'LOCK_STATE_CONFLICT');
+    const access = h.accesses.trackSelection, setter = access.setParameterEditLockState;
+    delete access.setParameterEditLockState;
+    expectError(h.call('parameters.lock', args), 'API_UNAVAILABLE');
+    access.setParameterEditLockState = setter;
+    const result = h.call('parameters.lock', args).data;
+    assert.equal(result.execution, 'submitted');
+    assert.equal(result.beforeLocked, false);
+    assert.equal(result.requestedLocked, true);
+    assert.deepEqual(h.state.lockWrites, [{ objectId: 2, tag: 101, locked: true }]);
+    assert.equal(h.call('parameters.get', args).data.parameter.locked, true);
+    expectError(h.call('parameters.set', { ...args, mode: 'normalized', value: 0.5 }), 'PARAMETER_LOCKED');
+    assert.equal(h.call('parameters.lock', { ...args, locked: false, expectedLocked: true }).data.execution, 'submitted');
+    assert.equal(h.call('parameters.get', args).data.parameter.locked, false);
+});
+
+test('edit-lock submission rejects invalidated parameters and records uncertain setter errors', () => {
+    const h = fixture(); observeParameters(h);
+    const args = { root: 'trackSelection', objectId: 2, tag: 101, locked: true, expectedLocked: false };
+    const access = h.accesses.trackSelection, getter = access.getParameterEditLockState;
+    access.getParameterEditLockState = function (mapping, objectId, tag) {
+        const value = getter.call(this, mapping, objectId, tag);
+        access.mOnObjectWillBeRemoved(h.device, mapping, objectId);
+        return value;
+    };
+    expectError(h.call('parameters.lock', args), 'PARAMETER_STALE');
+    assert.equal(h.state.lockWrites.length, 0);
+    access.getParameterEditLockState = getter;
+    observeParameters(h);
+    access.setParameterEditLockState = function (mapping, objectId, tag, locked) {
+        h.nodes.get(objectId).parameters.find(item => item.tag === tag).locked = locked;
+        throw new Error('uncertain host result');
+    };
+    const result = h.call('parameters.lock', args);
+    expectError(result, 'HOST_ERROR');
+    assert.equal(result.error.execution, 'submitted');
+    assert.equal(h.nodes.get(2).parameters[0].locked, true);
 });
 
 test('plain conversion is finite and round-trips; display uses only its exact setter', () => {

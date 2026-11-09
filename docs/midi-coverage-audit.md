@@ -6,7 +6,7 @@ This audit compares the bridge to the installed Cubase 16.0.5 declaration file `
 
 | Area | Bridge surface | Boundary |
 | --- | --- | --- |
-| Host access and DirectAccess | Four observed roots, object and parameter discovery, guarded parameter writes, plugin collection and slot assignment | Objects and tags must be observed in the active session; host methods and edition features can be unavailable. |
+| Host access and DirectAccess | Four observed roots, object and parameter discovery, guarded parameter writes and edit-lock changes, plugin collection and slot assignment | Objects and tags must be observed in the active session; host methods and edition features can be unavailable. |
 | Transport | Value bindings, tempo and primary/secondary locator callbacks and setters | Host submission is not playback or persistence evidence. |
 | Selected track | Identity, previous/next actions, channel values, pre-filter, EQ, sends, cue sends, instrument parameter bank and quick controls | Track feedback is invalidated on identity change; new instrument-bank writes require observed track and plug-in identity. Meter values are read-only. |
 | Selected channel strip | On, bypass, automation, callback identity, eight parameter-bank values and previous/next/reset actions for the five declared strip slots | Missing branches report unavailable; identity callbacks are session/track scoped and edit-window controls are omitted. |
@@ -32,3 +32,5 @@ Revision 3.5 adds bank insert viewer and navigation fixtures, including later-ch
 Revision 3.6 adds optional selected-channel runtime-ID guards and clears selected insert/strip feedback on valid plug-in-identity callbacks. Its fixture and deployment boundaries are in `docs/midi-coverage-3.6.md`; it does not add a project lifecycle API.
 
 Revision 3.7 adds selected-instrument and bank-channel instrument/strip parameter pages and guarded navigation. Five focused tests and the 89-test suite passed; installation was verified, but current mapping activation and the new controls are not yet verified in the live host (`docs/midi-plugin-banks-3.7.md`).
+
+Revision 3.8 adds a guarded DirectAccess edit-lock setter; the 91-test suite passed and installation was verified, while its live mapping and mutation remain unverified (`docs/midi-parameter-lock-3.8.md`).

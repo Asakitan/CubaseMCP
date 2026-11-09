@@ -22,6 +22,8 @@ The 120-second observer recorded 548 samples: the private `Cubase AI` title appe
 
 The diagnostic image is pinned and its path object is retained for PID 24036's lifetime because posted ownership is not established. Admission, start, loader and result records are non-overwriting; do not invoke the entry again or dismiss the private prompt. Static inspection located the prompt's translation key but not its display or decision path (`project-activation-prompt-20.md`).
 
+Session 22 traced a static consumer and decision predicates for that key, and a later bounded list traversal correlated two root/document/path candidates with the startup and probe filenames (`project-activation-static-22.md`, `project-root-documents-22.md`). These are post-prompt, unlocked observations; they do not establish active selection, completion or persistence.
+
 ## Verification and remaining work
 
 PowerShell parsing, C# compilation, wrong-lifetime rejection, MSVC `/Zs` and `/W4 /WX` build succeeded. The TypeScript build and full test suite passed 84/84. The build-specific host-open signature, queue ownership and completion contract remain hypotheses; these checks are not live create, save, edit or persistence verification. Continue with read-only investigation of the activation prompt and independently observable document state; the production runtime remains the single MIDI transport.

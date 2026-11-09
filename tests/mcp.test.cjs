@@ -31,6 +31,7 @@ test('all session operations reject an obsolete bridge before host dispatch', as
         ['cubase_parameters_list', ref],
         ['cubase_parameter_get', { ...ref, tag: 1 }],
         ['cubase_parameter_set', { ...ref, tag: 1, mode: 'normalized', value: 0.2 }],
+        ['cubase_parameter_edit_lock_set', { ...ref, tag: 1, locked: true, expectedLocked: false }],
         ['cubase_plugins_list', ref],
         ['cubase_plugin_set', { ...ref, pluginUid: 'test', confirmReplacement: true }],
         ['cubase_controls_list', { session: 'old' }],
@@ -103,6 +104,10 @@ test('MCP forwards selected-channel runtime guards to the current bridge', async
             name: 'Synth', vendor: 'Vendor', version: '1', formatVersion: '3' } };
         assert.equal((await client.callTool({ name: 'cubase_control_set', arguments: plugin })).isError, undefined);
         assert.deepEqual(requests.at(-1), { operation: 'controls.set', args: plugin });
+        const editLock = { session: 'current', root: 'trackSelection', objectId: 2, tag: 101,
+            locked: true, expectedLocked: false };
+        assert.equal((await client.callTool({ name: 'cubase_parameter_edit_lock_set', arguments: editLock })).isError, undefined);
+        assert.deepEqual(requests.at(-1), { operation: 'parameters.lock', args: editLock });
         const navigation = { session: 'current', direction: 'next', expectedUniqueId: 'track', expectedRuntimeId: 7 };
         assert.equal((await client.callTool({ name: 'cubase_track_navigate', arguments: navigation })).isError, undefined);
         assert.deepEqual(requests.at(-1), { operation: 'track.navigate', args: navigation });
@@ -113,6 +118,10 @@ test('MCP forwards selected-channel runtime guards to the current bridge', async
         const invalidPlugin = await client.callTool({ name: 'cubase_control_set', arguments: {
             ...plugin, expectedPluginIdentity: { ...plugin.expectedPluginIdentity, extra: 'unexpected' } } });
         assert.equal(invalidPlugin.isError, true);
+        assert.equal(requests.length, before);
+        const invalidLock = await client.callTool({ name: 'cubase_parameter_edit_lock_set', arguments: {
+            ...editLock, expectedLocked: 'false' } });
+        assert.equal(invalidLock.isError, true);
         assert.equal(requests.length, before);
     } finally {
         await client.close();
@@ -142,9 +151,10 @@ test('real stdio server exposes tools and rejects missing MIDI without fallback'
     try {
         await client.connect(transport);
         const listed = await client.listTools();
-        assert.equal(listed.tools.length, 23);
+        assert.equal(listed.tools.length, 24);
         assert.ok(listed.tools.some(tool => tool.name === 'cubase_parameter_set'));
         assert.ok(listed.tools.some(tool => tool.name === 'cubase_parameter_get'));
+        assert.ok(listed.tools.some(tool => tool.name === 'cubase_parameter_edit_lock_set'));
         assert.ok(listed.tools.some(tool => tool.name === 'cubase_track_navigate'));
         assert.ok(listed.tools.some(tool => tool.name === 'cubase_transport_get'));
         assert.ok(listed.tools.some(tool => tool.name === 'cubase_mixer_channel_info'));

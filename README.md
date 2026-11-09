@@ -50,7 +50,7 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 3. 带同一 `session`、`root`、`objectId` 和 `tag` 调用 `cubase_parameter_set`；可指定 normalized、plain 或 display 格式。
 4. 读回确认修改。`submitted` 只表示已经提交，不等于操作已完成。
 
-共 23 个 MCP 工具。单参数及单控制项查询、所选轨道身份和前后导航、混音通道位置、速度和时间显示反馈，以及宿主版本和功能上限查询均有明确会话约束。已选轨控制包括四段 EQ、前级滤波、发送、乐器槽、五类通道条效果及其参数页、自动化和只读电平表；发送槽数量按宿主返回值确定，可用性以实际返回为准。`cubase_control_set` 可同时传入 `expectedTrackUniqueId` 和 `expectedTrackRuntimeId` 检查选中通道；`cubase_track_navigate` 可传入 `expectedRuntimeId`，两个运行时 ID 均来自 `cubase_selected_track`。这些检查不是与宿主状态原子绑定的事务。插件替换要求 `confirmReplacement:true`，当前选择命令要求 `confirmCurrentSelection:true`。另有 Control Room 及固定混音器银行操作；声明存在不等于 AI 版本实际开放了相应功能。菜单执行仅限固定清单。
+共 24 个 MCP 工具。单参数及单控制项查询、参数编辑锁、所选轨道身份和前后导航、混音通道位置、速度和时间显示反馈，以及宿主版本和功能上限查询均有明确会话约束。`cubase_parameter_edit_lock_set` 需要已观察的参数和匹配的 `expectedLocked`，回执表示已提交；使用 `cubase_parameter_get` 读取后续状态。已选轨控制包括四段 EQ、前级滤波、发送、乐器槽、五类通道条效果及其参数页、自动化和只读电平表；发送槽数量按宿主返回值确定，可用性以实际返回为准。`cubase_control_set` 可同时传入 `expectedTrackUniqueId` 和 `expectedTrackRuntimeId` 检查选中通道；`cubase_track_navigate` 可传入 `expectedRuntimeId`，两个运行时 ID 均来自 `cubase_selected_track`。这些检查不是与宿主状态原子绑定的事务。插件替换要求 `confirmReplacement:true`，当前选择命令要求 `confirmCurrentSelection:true`。另有 Control Room 及固定混音器银行操作；声明存在不等于 AI 版本实际开放了相应功能。菜单执行仅限固定清单。
 
 `cubase_status` 返回紧凑握手，不再内嵌完整对象和控制表。`cubase_controls_list` 的控制和分组分别分页，按 `nextOffset`、`nextGroupOffset` 获取全部项目；`cubase_transport_get` 提供速度与定位器的可用性和实际反馈。长身份标识原样保留，描述性元数据有长度上限。
 
@@ -66,9 +66,9 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 
 ## 验证状态
 
-本轮 TypeScript 构建通过，测试 **89/89** 通过；先前的临时虚拟端口客户端 PID 检查也已通过。统一版本门禁覆盖全部 19 个带会话的宿主操作，诊断命令将端口和握手状态与实际操作就绪状态分开报告。
+本轮 TypeScript 构建通过，测试 **91/91** 通过；先前的临时虚拟端口客户端 PID 检查也已通过。统一版本门禁覆盖全部 20 个带会话的宿主操作，诊断命令将端口和握手状态与实际操作就绪状态分开报告。
 
-控制器 `2026-11-10-coverage-3.7` 已安装并读回核对，之前的四个安装文件已备份。当前隔离进程仍只记录了 3.6 的构造，两个虚拟 MIDI 端口也观察到该进程；上一隔离进程的一次无写入状态请求返回 `MIDI_TIMEOUT`，执行结果为 `unknown`，没有重放该请求。端口打开和脚本构造均不等于 MCP 握手成功。
+控制器 `2026-11-10-coverage-3.8` 已安装并读回核对，之前的四个安装文件已备份。当前隔离进程仍只记录了 3.6 的构造，两个虚拟 MIDI 端口也观察到该进程；上一隔离进程的一次无写入状态请求返回 `MIDI_TIMEOUT`，执行结果为 `unknown`，没有重放该请求。端口打开和脚本构造均不等于 MCP 握手成功。
 
 3.7 新增已选通道仪器槽以及混音银行通道仪器槽、通道条效果的参数银行控制。调用 `cubase_control_get` 读取完整 `pluginIdentity`，写入时原样传入 `expectedPluginIdentity`，并附带对应通道身份；回调和宿主状态并非原子绑定，提交回执仍需后续宿主反馈确认。详见 [插件参数银行](docs/midi-plugin-banks-3.7.md)。
 
@@ -76,7 +76,7 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 
 较早的 `artifacts/live-smoke/verification.json` 记录了真实 Cubase AI 16.0.5 的发现、参数、反馈和音量写入恢复；它不证明本轮新增控制项、工程存储或完整功能覆盖。新版 `verify:live` 脚本要求当前控制器，旧记录与本轮实机验收分别记录。详细状态见 [STATUS](STATUS.md)。
 
-**当前状态（第 21 轮）**：两次独立工程打开提交均保持 `unknown`，当前私有桌面的“您想激活工程吗？”提示未操作。3.7 的新增控制已通过夹具测试并部署，现有隔离进程仍记录 3.6 构造，3.7 的活动映射和实机控制尚未验证。创建、存储、编辑工程和完整功能验收仍在进行。详见 [工程打开诊断](docs/project-open-probe-20.md)、[插件参数银行](docs/midi-plugin-banks-3.7.md) 与 [后台桌面约束](docs/background-desktop-job.md)。
+**当前状态（第 22 轮）**：两次独立工程打开提交均保持 `unknown`，当前私有桌面的“您想激活工程吗？”提示未操作。只读快照发现两组不同工程路径候选，但尚未证明打开完成或存储成功。3.8 的参数编辑锁已通过夹具测试并部署，现有隔离进程仍记录 3.6 构造，3.8 的活动映射和实机控制尚未验证。创建、存储、编辑工程和完整功能验收仍在进行。详见 [工程根与路径观察](docs/project-root-documents-22.md)、[参数编辑锁](docs/midi-parameter-lock-3.8.md) 与 [后台桌面约束](docs/background-desktop-job.md)。
 
 ## 原生项目接口调查
 

@@ -23,3 +23,4 @@
 | [19](session-19.md) | 2026-11-10 | Submit one isolated copied-project open and trace the resulting working-directory prompt. |
 | [20](session-20.md) | 2026-11-10 | Observe a same-directory startup and one separate open submission that raised an activation prompt. |
 | [21](session-21.md) | 2026-11-10 | Add guarded instrument/strip parameter banks and inspect the isolated activation thread context. |
+| [22](session-22.md) | 2026-11-10 | Add guarded parameter edit locks and trace two post-prompt project root/path candidates. |

@@ -11,7 +11,7 @@ var MAX_OBJECTS = 2048;
 var MAX_TAGS = 8192;
 var MAX_PLUGINS = 8192;
 var MAX_INTEGER = 9007199254740991;
-var BRIDGE_REVISION = '2026-11-10-coverage-3.7';
+var BRIDGE_REVISION = '2026-11-10-coverage-3.8';
 
 function fail(code, message, details, execution) {
     var error = new Error(message);
@@ -461,6 +461,34 @@ function createController(api, logger) {
             var after = root.objects[args.objectId] ? parameterValue(root, args.objectId, args.tag) : null;
             return receipt(request, { root: args.root, objectId: args.objectId, tag: args.tag,
                 mode: args.mode, requestedValue: args.value, before: before, after: after });
+        });
+    }
+
+    function parametersSetEditLock(request, args) {
+        if (typeof args.locked !== 'boolean' || typeof args.expectedLocked !== 'boolean') {
+            fail('INVALID_ARGUMENT', 'locked and expectedLocked must be booleans.');
+        }
+        var operationMapping = activeMapping, operationSession = session;
+        var root = selectedRoot(args);
+        var known = admittedParameter(root, args.objectId, args.tag);
+        var index = known.tags[args.tag];
+        var setter = method(root.access, 'setParameterEditLockState');
+        var before = hostBool(invoke(root.access, 'getParameterEditLockState', [operationMapping, args.objectId, args.tag]));
+        if (before !== args.expectedLocked) {
+            fail('LOCK_STATE_CONFLICT', 'The observed edit lock differs from expectedLocked.', { actualLocked: before });
+        }
+        if (activeMapping !== operationMapping || session !== operationSession) {
+            fail('STALE_SESSION', 'The active mapping changed before the edit-lock write.');
+        }
+        if (root.objects[args.objectId] !== known || known.tags[args.tag] !== index) {
+            fail('PARAMETER_STALE', 'The observed parameter changed before the edit-lock write.');
+        }
+        return submitted(function () {
+            setter.call(root.access, operationMapping, args.objectId, args.tag, args.locked);
+            var result = receipt(request, { root: args.root, objectId: args.objectId, tag: args.tag,
+                beforeLocked: before, requestedLocked: args.locked });
+            result.session = operationSession;
+            return result;
         });
     }
 
@@ -1161,6 +1189,7 @@ function createController(api, logger) {
         if (request.op === 'parameters.list') return parametersList(args);
         if (request.op === 'parameters.get') return parametersGet(args);
         if (request.op === 'parameters.set') return parametersSet(request, args);
+        if (request.op === 'parameters.lock') return parametersSetEditLock(request, args);
         if (request.op === 'plugins.list') return pluginsList(args);
         if (request.op === 'plugins.set') return pluginsSet(request, args);
         if (request.op === 'controls.list') return controlList(args);

@@ -1,0 +1,9 @@
+# MIDI Remote parameter edit-lock control: 3.8
+
+Revision `2026-11-10-coverage-3.8` adds `cubase_parameter_edit_lock_set` through the existing single MIDI Remote transport. The installed Cubase 16 MIDI Remote declaration and [Steinberg API reference](https://steinbergmedia.github.io/midiremote_api_doc/codedoc_api_reference/) define `getParameterEditLockState` and `setParameterEditLockState` on DirectAccess; the declaration does not guarantee availability for every edition, object or project.
+
+The caller discovers the object and parameter tag in the current root and session, then supplies Boolean `locked` and `expectedLocked`. The bridge validates the observed object and tag, reads the host's current Boolean lock state, and rejects a mismatch as `LOCK_STATE_CONFLICT`. It rechecks the mapping/session and that the recorded object/tag observation survived the read before making one setter call. A missing setter reports `API_UNAVAILABLE`. These sequential checks are not atomic with host state.
+
+The response reports `execution: submitted`, the prior lock state and requested state, not a completed mutation. A setter exception after entry retains `execution: submitted`; its actual effect may be unknown and is not automatically replayed. `cubase_parameter_get` may be used to inspect the later host-reported state, subject to the same session and observation rules.
+
+The TypeScript build, two focused lock tests and the full **91/91** suite passed. Revision 3.8 was installed after backing up the prior four script files at `artifacts/runtime/before-coverage-3.8-618131d9668147e4a3361cfb83b38284` (`artifacts/runtime/deploy-coverage-3.8-618131d9668147e4a3361cfb83b38284.json`). Existing PID 24036 still logged only revision 3.6 construction after deployment (`artifacts/ipc/midi-script-after-deploy-3.8-24036.json`); mapping activation and the edit-lock operation remain unverified in the live host.

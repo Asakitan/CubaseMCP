@@ -93,6 +93,10 @@ export function createServer(config: Configuration = loadConfig()) {
         value: z.union([z.number().finite(), z.string().max(1024)]),
         expectedValue: z.number().finite().optional()
     }, false);
+    expose('cubase_parameter_edit_lock_set', 'parameters.lock', 'Submit an edit-lock change for an observed parameter. expectedLocked must match the current host lock state; re-read the parameter to verify the outcome.', {
+        ...reference, tag: z.number().int().min(-2147483648).max(4294967295),
+        locked: z.boolean(), expectedLocked: z.boolean()
+    }, false);
     expose('cubase_plugins_list', 'plugins.list', 'List plugins offered by the active host for a discovered plugin slot, without opening plugin windows.', { ...reference, collection: z.number().int().nonnegative().default(0), ...pagination });
     expose('cubase_plugin_set', 'plugins.set', 'Assign a plugin UID discovered for this slot. Suppresses the discard dialog; existing plugin state can be replaced. Requires explicit confirmation.', {
         ...reference, pluginUid: z.string().min(1).max(512), confirmReplacement: z.literal(true)
