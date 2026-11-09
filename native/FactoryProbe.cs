@@ -40,6 +40,9 @@ namespace CubaseAiMcp
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         private delegate int CreateInstance(IntPtr instance, IntPtr cid, IntPtr iid, out IntPtr result);
 
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int EmptyServiceRequest(IntPtr instance, IntPtr input, IntPtr output, IntPtr status);
+
         public sealed class ClassRecord
         {
             public string CidBytes;
@@ -60,7 +63,11 @@ namespace CubaseAiMcp
             public bool BusinessObjectsCreated;
             public bool ServiceProbeAttempted;
             public int? ServiceResult;
+            public bool EmptyRequestAttempted;
+            public int? EmptyRequestResult;
+            public int? EmptyRequestStatus;
             public string ServiceIidBytes;
+            public ClassRecord ObservedServiceClass;
             public List<string> FactoryMethodRvas = new List<string>();
             public List<string> ServiceMethodRvas = new List<string>();
             public List<ClassRecord> Classes = new List<ClassRecord>();
@@ -83,17 +90,24 @@ namespace CubaseAiMcp
 
         public static Report Inspect(string filename)
         {
-            return InspectCore(filename, false);
+            return InspectCore(filename, false, false);
         }
 
         public static Report InspectProjectService(string filename)
         {
             if (!String.Equals(System.IO.Path.GetFileName(filename), "projectplugin.dll", StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException("The service probe only accepts the observed project component.");
-            return InspectCore(filename, true);
+            return InspectCore(filename, true, false);
         }
 
-        private static Report InspectCore(string filename, bool probeProjectService)
+        public static Report InspectEmptyProjectRequest(string filename)
+        {
+            if (!String.Equals(System.IO.Path.GetFileName(filename), "projectplugin.dll", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("The request probe only accepts the observed project component.");
+            return InspectCore(filename, true, true);
+        }
+
+        private static Report InspectCore(string filename, bool probeProjectService, bool probeEmptyRequest)
         {
             if (IntPtr.Size != 8) throw new PlatformNotSupportedException("Requires a 64-bit probe process");
             Report report = new Report { Module = filename, Stage = "load" };
@@ -101,6 +115,9 @@ namespace CubaseAiMcp
             IntPtr factory = IntPtr.Zero;
             IntPtr buffer = IntPtr.Zero;
             IntPtr service = IntPtr.Zero;
+            IntPtr empty = IntPtr.Zero;
+            IntPtr input = IntPtr.Zero;
+            IntPtr requestStatus = IntPtr.Zero;
             bool initialized = false;
             try
             {
@@ -157,6 +174,12 @@ namespace CubaseAiMcp
                     for (int i = 0; i < expectedCid.Length; i++)
                         if (expectedCid[i] != observedCid[i])
                             throw new InvalidOperationException("The registered class differs from the inspected build.");
+                    byte[] observedInfo = new byte[116];
+                    Marshal.Copy(buffer, observedInfo, 0, observedInfo.Length);
+                    report.ObservedServiceClass = new ClassRecord {
+                        CidBytes = BitConverter.ToString(observedCid).Replace("-", ""),
+                        CidGuid = new Guid(observedCid).ToString(), Cardinality = BitConverter.ToInt32(observedInfo, 16),
+                        Category = Text(observedInfo, 20, 32), Name = Text(observedInfo, 52, 64) };
                     byte[] iid = new byte[] { 0xba, 0x81, 0x0b, 0xe2, 0x39, 0x5d, 0x49, 0x49,
                         0x9c, 0x8e, 0xe9, 0x69, 0x38, 0x72, 0xde, 0xf6 };
                     Marshal.Copy(expectedCid, 0, buffer, expectedCid.Length);
@@ -171,12 +194,32 @@ namespace CubaseAiMcp
                     IntPtr serviceTable = Marshal.ReadIntPtr(service);
                     for (int slot = 0; slot < 4; slot++)
                         report.ServiceMethodRvas.Add("0x" + (Marshal.ReadIntPtr(serviceTable, slot * IntPtr.Size).ToInt64() - module.ToInt64()).ToString("x"));
+                    if (probeEmptyRequest)
+                    {
+                        if (Marshal.ReadIntPtr(serviceTable, 3 * IntPtr.Size).ToInt64() - module.ToInt64() != 0x11ef0)
+                            throw new InvalidOperationException("The service request entry differs from the inspected build.");
+                        empty = Marshal.AllocHGlobal(1);
+                        input = Marshal.AllocHGlobal(IntPtr.Size);
+                        requestStatus = Marshal.AllocHGlobal(sizeof(int));
+                        Marshal.WriteByte(empty, 0);
+                        Marshal.WriteIntPtr(input, empty);
+                        Marshal.WriteInt32(requestStatus, -1);
+                        report.Stage = "empty-service-request";
+                        report.EmptyRequestAttempted = true;
+                        report.EmptyRequestResult = Method<EmptyServiceRequest>(service, 3)(service, input, IntPtr.Zero, requestStatus);
+                        report.EmptyRequestStatus = Marshal.ReadInt32(requestStatus);
+                        if (report.EmptyRequestResult != 1 || report.EmptyRequestStatus != 4)
+                            throw new InvalidOperationException("The empty request returned an unexpected result or status.");
+                    }
                 }
                 report.Stage = "complete";
             }
             catch (Exception error) { report.Error = error.Message; }
             finally
             {
+                if (requestStatus != IntPtr.Zero) Marshal.FreeHGlobal(requestStatus);
+                if (input != IntPtr.Zero) Marshal.FreeHGlobal(input);
+                if (empty != IntPtr.Zero) Marshal.FreeHGlobal(empty);
                 if (service != IntPtr.Zero) Method<ReleaseObject>(service, 2)(service);
                 if (buffer != IntPtr.Zero) Marshal.FreeHGlobal(buffer);
                 if (factory != IntPtr.Zero) Method<ReleaseObject>(factory, 2)(factory);

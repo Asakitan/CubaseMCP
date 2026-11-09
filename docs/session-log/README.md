@@ -8,3 +8,4 @@
 | [04](session-04.md) | 2026-11-10 | Investigate native RPC/IPC and project interfaces without foreground interference. |
 | [05](session-05.md) | 2026-11-10 | Verify the component-factory boundary and record the unresolved host registration contract. |
 | [06](session-06.md) | 2026-11-10 | Recover native project request contracts, expand declared controls and enforce a uniform active-bridge gate. |
+| [07](session-07.md) | 2026-11-10 | Recover native project context and test automatic driver activation without UI. |

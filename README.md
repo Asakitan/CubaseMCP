@@ -66,9 +66,11 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 
 本轮 TypeScript 构建通过，测试 **57/57** 通过。统一版本门禁覆盖全部 19 个带会话的宿主操作，诊断命令将端口和握手状态与实际操作就绪状态分开报告。
 
-控制器 `2026-11-10-coverage-2` 已安装并读回核对；原版本备份于 `artifacts/runtime/controller-before-coverage-2-20261110.js`，另外三个脚本内容未变。运行中的隔离 Cubase 仍加载更早版本，实机返回 `readyForOperations:false`，一次旧版对象读取在执行前以 `BRIDGE_UPGRADE_REQUIRED / not_started` 结束，证据见 `artifacts/live-smoke/guard-live-20261110.json`。新控制器尚待自动激活及实机验收。
+控制器 `2026-11-10-coverage-2` 已安装并读回核对；原版本备份于 `artifacts/runtime/controller-before-coverage-2-20261110.js`，另外三个脚本内容未变。上一轮运行的隔离 Cubase 当时加载更早版本，实机返回 `readyForOperations:false`，一次旧版对象读取在执行前以 `BRIDGE_UPGRADE_REQUIRED / not_started` 结束，证据见 `artifacts/live-smoke/guard-live-20261110.json`。新控制器尚待自动激活及实机验收。
 
 较早的 `artifacts/live-smoke/verification.json` 记录了真实 Cubase AI 16.0.5 的发现、参数、反馈和音量写入恢复；它不证明本轮新增控制项、工程存储或完整功能覆盖。新版 `verify:live` 脚本要求当前控制器，旧记录与本轮实机验收分别记录。详细状态见 [STATUS](STATUS.md)。
+
+**当前状态（第 07 轮）**：已获准重启专用隔离测试实例，原工程和自动备份均已保留。启动器新增显式现有 CPR 路径和私有桌面隐藏控制台，当前测试副本为 `MCP Recovered 20261110.cpr`；实例尚停在启动确认阶段，当前没有已验证的 MIDI 握手。创建、存储、编辑工程和完整功能验收仍在进行，端口存在、进程存活和完成状态分别记录。详见 [启动恢复记录](docs/startup-recovery-investigation.md)。
 
 ## 原生项目接口调查
 
@@ -80,7 +82,9 @@ powershell.exe -NoProfile -File scripts/Inspect-ProjectFactory.ps1 -ProbeProject
 
 该探针在独立进程中成功获取并释放了原生项目服务接口，没有修改工厂检查、伪造宿主、连接运行中的 Cubase 或发送工程请求。报告见 `artifacts/ipc/service-probe-20261110.json`。已静态还原一个 `GetMusicalTrack` 请求候选，但真实工程上下文和返回值生命周期仍待接通；当前 MCP 尚未实现工程创建、存储、编辑和参数化导出。
 
-主人已批准 R1 仅用于隔离 Cubase 的只读诊断；工具实际返回缺少 `SeLoadDriverPrivilege`，驱动未加载，也未读取进程内存。现阶段继续静态契约恢复，未增加其他运行后端。
+此前 R1 工具返回缺少 `SeLoadDriverPrivilege`，驱动未加载；本轮已通过普通用户态只读检查，确认一个记录在案的宿主进程确实注册了项目接口。该快照不等于当前进程已就绪，也未增加其他运行后端。
+
+另有显式 `-ProbeEmptyRequest` 模式，在独立探针进程中验证固定空输入分支，返回值为 `1`、状态为 `4`。该结果不涉及项目数据读取或写入。详见 [服务请求契约](docs/service-request-contract.md) 和 [宿主注册入口](docs/host-registry-access.md)。
 
 详见 [工厂恢复](docs/native-factory-recovery.md)、[项目请求路径](docs/host-project-api.md)、[原生调查范围](docs/native-interface-investigation.md) 和 [MIDI 声明覆盖清单](docs/midi-coverage-audit.md)。
 

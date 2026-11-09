@@ -9,3 +9,5 @@ __pycache__/
 /host-project-*.json
 /service-probe-*.json
 /guard-live-*.json
+/host-registry-*.txt
+/host-registry-*.json

@@ -92,9 +92,12 @@ namespace CubaseAiMcp
                 StartupInfo startup = new StartupInfo();
                 startup.cb = (uint)Marshal.SizeOf(typeof(StartupInfo));
                 startup.desktop = "winsta0\\" + desktopName;
+                startup.flags = 0x00000001;
+                startup.showWindow = 0;
                 ProcessInformation information;
                 StringBuilder command = new StringBuilder("\"" + executable + "\" \"" + project + "\"");
-                if (!CreateProcessW(executable, command, IntPtr.Zero, IntPtr.Zero, false, 0,
+                // Keep the console and all application windows on the private desktop.
+                if (!CreateProcessW(executable, command, IntPtr.Zero, IntPtr.Zero, false, 0x00000010,
                     IntPtr.Zero, directory, ref startup, out information))
                     throw new Win32Exception(Marshal.GetLastWin32Error(), "Cubase could not be started.");
                 CloseHandle(information.thread);
