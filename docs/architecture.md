@@ -45,7 +45,7 @@ Every request carries a required epoch deadline. The remote checks it immediatel
 
 Transport tempo and locator calls use `mTransport.mTimeDisplay.setTempoBPM` and the requested primary/secondary `MR_TransportTime.setTime` directly. They do not substitute commands or open transport windows. Numeric and display parameter setters similarly use only the explicitly selected representation.
 
-Cubase owns the project, audio thread and plugin lifecycle. This server does not emulate application features absent from the public API. A legacy core chain was verified on AI16.0.5 in an earlier process; the current revision's mapping and live chain remain unverified.
+Cubase owns the project, audio thread and plugin lifecycle. This server does not emulate application features absent from the public API. A legacy core chain was verified on AI16.0.5 in an earlier process; session 24 subsequently verified the current revision's mapping, reads, and individual DirectAccess value and edit-lock round trips. A separate selected-track volume binding write remained unverified.
 
 ## Initialization Boundary
 
@@ -78,3 +78,7 @@ The file-only inspectors in `scripts/project-host-open-interface-inspect.py`, `s
 `scripts/Read-ProjectCandidates.ps1` and `scripts/project-candidate-provenance-inspect.py` separately observe bounded document candidates and verify their fixed-build root-field provenance. `scripts/project-open-16-snapshot.ps1` reads the thread-sensitive host-open predicate's backing state without invoking it; the corresponding disk-only inspectors examine open dispatch, save and MIDI scanner branches. These are diagnostics, not control paths or evidence of lifecycle completion. See `docs/project-candidate-observation.md`, `docs/project-open-16.md`, `docs/project-create-save-16.md` and `docs/midi-activation-16.md`.
 
 A fixed session 19 diagnostic submitted one host-open call for an owned copied CPR. It is separately named, one-shot, PID/build/fixture/job checked and not connected to the MIDI-only MCP runtime. A private moved-project dialog appeared; no dialog action or completion was observed. The separate observer is polling-based and its coverage is limited. See `docs/project-open-probe-19.md`, `docs/project-open-observer-19.md` and `docs/project-moved-prompt-19.md`.
+
+## Session 24 diagnostic boundary
+
+`CubaseDesktop.StartEmpty` and the separate `Start-CubaseEmptyBackground.ps1` use the same private-desktop and restricted-Job core as project-argument startup; their explicit diagnostic mode is not an MCP project lifecycle API. The separately fixed first-project diagnostic and passive transition observer operate outside the MCP production transport. One submission in PID 72128 preceded observation of a same-name window, root and informer tree membership; `openResult=0` is submission only. The 3.8 mapping activated and live read/discovery passed, while a Piano track-volume control write remained unverified. A separate Stereo Out DirectAccess parameter write and restore were independently observed. Sequential polling and foreground samples do not establish atomic state or continuous desktop history. See `docs/first-project-open-24.md`.

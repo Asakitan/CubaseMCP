@@ -193,7 +193,19 @@ namespace CubaseAiMcp
 
         public static LaunchResult Start(string executable, string project, string directory, string desktopName)
         {
-            if (executable.IndexOf('"') >= 0 || project.IndexOf('"') >= 0) throw new ArgumentException("Invalid path quoting.");
+            if (String.IsNullOrEmpty(project)) throw new ArgumentException("A project path is required.", "project");
+            return StartCore(executable, project, directory, desktopName);
+        }
+
+        public static LaunchResult StartEmpty(string executable, string directory, string desktopName)
+        {
+            return StartCore(executable, null, directory, desktopName);
+        }
+
+        private static LaunchResult StartCore(string executable, string project, string directory, string desktopName)
+        {
+            if (String.IsNullOrEmpty(executable) || executable.IndexOf('"') >= 0 ||
+                (project != null && project.IndexOf('"') >= 0)) throw new ArgumentException("Invalid path quoting.");
             if (heldProcess != IntPtr.Zero) throw new InvalidOperationException("This host already owns a Cubase process.");
             string inputBefore = NonTargetInputDesktop(desktopName);
             IntPtr foreground = GetForegroundWindow();
@@ -217,7 +229,8 @@ namespace CubaseAiMcp
                 startup.desktop = "winsta0\\" + desktopName;
                 startup.flags = 0x00000001;
                 startup.showWindow = 0;
-                StringBuilder command = new StringBuilder("\"" + executable + "\" \"" + project + "\"");
+                StringBuilder command = new StringBuilder("\"" + executable + "\"");
+                if (project != null) command.Append(" \"").Append(project).Append("\"");
                 // Assign the suspended process to the restricted job before any application code runs.
                 if (!CreateProcessW(executable, command, IntPtr.Zero, IntPtr.Zero, false, CreationFlags,
                     IntPtr.Zero, directory, ref startup, out information))

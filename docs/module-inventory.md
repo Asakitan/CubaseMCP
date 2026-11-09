@@ -8,20 +8,24 @@
 | `src/doctor.ts` | `dist/src/doctor.js` | Reports operational readiness separately from handshake availability |
 | `src/midi.ts` | `dist/src/midi.js` | 15 tests passed; exact ports, deadline and fault latch |
 | `remote/protocol.js` | Driver folder and `dist/remote/protocol.js` | 2 protocol tests passed |
-| `remote/controller.js` | Driver folder | Coverage 3.8 installed; edit-lock and plug-in banks fixture-tested; current host logged 3.6 construction, activation unverified |
+| `remote/controller.js` | Driver folder | Coverage 3.8 installed and current host mapping activated; DirectAccess parameter and edit-lock round trips observed, selected-track volume binding write unverified |
 | `remote/CubaseAI_MCP.js` | Driver entry | Top-level CommonJS export removed; ES5 regression passed and current host logged controller construction |
 | `remote/commands.js` | Driver command allowlist | 3 fixed bindings; ES5 verified and installed |
 | `scripts/Install-Remote.ps1` | Local driver installation | Four files deployed; no Cubase launch |
 | `.vscode/mcp.json` | VS Code stdio server | Configured against built entry |
-| `.vscode/tasks.json` | Build/test/install/live-diagnostic tasks | Build and 84-test suite passed; earlier 3.5 no-write real-host status request timed out |
+| `.vscode/tasks.json` | Build/test/install/live-diagnostic tasks | Build and 91-test suite passed; current MCP reads succeeded and one DirectAccess parameter was written/restored |
 | `scripts/Install-Midi.ps1` | Installed loopMIDI/virtualMIDI driver | Explicit installation completed |
 | `native/MidiPortHost.cs` | Hidden PowerShell port process | Real SysEx loopbacks and client-PID query tested |
 | `scripts/Start-MidiPorts.ps1` | Two exact-name virtual ports | Running with explicit stop and correlated one-shot client inspection |
-| `native/CubaseDesktop.cs` | Isolated Windows desktop/process lifetime | Suspended target gets a verified desktop-restricted job; synthetic denial and isolated Cubase start observed |
-| `scripts/Start-CubaseBackground.ps1` | Explicit existing CPR or copied AI test project | Validated path, runtime receipt and no-inherited-handle holder; fresh detached Cubase path remains unverified |
+| `native/CubaseDesktop.cs` | Isolated Windows desktop/process lifetime | Shared suspended-process desktop and restricted-Job core for explicit CPR and no-argument launch; synthetic checks and session 24 launch observed |
+| `scripts/Start-CubaseBackground.ps1` | Explicit existing CPR or copied AI test project | Validated path, runtime receipt and no-inherited-handle holder; fresh detached launch observed in session 20 |
+| `scripts/Start-CubaseEmptyBackground.ps1`, `tests/EmptyStartProbe.cs`, `tests/empty-start-job.ps1`, `tests/background-empty-existing-guard.ps1` | Separate no-CPR private launch diagnostic | Existing-instance guard and synthetic Job checks passed; PID 72128 launched with identity-bearing receipt; not an MCP create operation |
+| `scripts/Read-FirstProjectState24.ps1`, `scripts/Prepare-FirstProjectOpen24Fixture.ps1`, `scripts/Observe-FirstProjectOpen24.ps1` | Fixed session 24 admission, copied fixture and passive observer | No-project state and Job sampled; 512 observer samples without a recorded desktop violation; polling is non-atomic |
+| `native/FirstProjectJobAudit24.cs`, `native/FirstProjectOpen24Loader.cs`, `native/bridge/CubaseMcpFirstProjectOpen24.cpp`, `scripts/Build-FirstProjectOpen24.ps1`, `scripts/Invoke-FirstProjectOpen24.ps1` | Fixed one-shot diagnostic outside MCP runtime | Built; one fixture submission returned zero and subsequent project root/tree and 3.8 activation were observed; no lifecycle completion claimed |
+| `docs/background-empty-start-24.md`, `docs/empty-start-static-24.md`, `docs/first-project-open-24.md` | Session 24 launch, static-branch and first-project evidence | Diagnostic scope, sampling limitations, mapping activation and individual live MCP observations recorded |
 | `native/CubaseDeviceRefresh.cs` | Fixed isolated device notification diagnostic | Private worker-thread binding; delivery/reconnection unverified |
 | `scripts/Refresh-CubaseDevices.ps1` | Explicit device refresh diagnostic | Structured errors; no arbitrary message or MCP route |
-| `scripts/verify-live.cjs`, `tests/verify-live.test.cjs` | Actual stdio MCP verifier | Uses both track identifiers, observes target before one restore and writes unique reports; current revision not live-verified |
+| `scripts/verify-live.cjs`, `tests/verify-live.test.cjs` | Actual stdio MCP verifier | Current 3.8 reads/discovery passed; Piano control write target was not observed and no restore was submitted |
 | `scripts/inspect-cubase-ipc.cjs` | Independent read-only diagnostic | Ten actual PE files and live endpoint metadata inspected successfully; no host mutation or RPC calls |
 | `docs/native-interface-investigation.md` | Native integration evidence | Factory, project-request and SKI-dispatcher candidates recorded; callable ABI not recovered |
 | `native/FactoryProbe.cs` | Independent diagnostic process | Default metadata, observed service class/interface, and fixed empty-request probe; empty branch returned 1/status 4 without host context |
@@ -35,7 +39,7 @@
 | `docs/host-registry-access.md` | Static and live native registry evidence | Host registry membership recorded; later fixed request returned an error callback |
 | `docs/service-request-contract.md` | Service ABI investigation | Empty-input return validated independently; complete live request contract pending |
 | `docs/project-lifecycle-contract.md` | Native lifecycle research | Marker/listener paths bounded; no complete project CRUD contract |
-| `docs/startup-recovery-investigation.md` | Current startup evidence | Recovered score project opened privately after cache archival; current handshake absent |
+| `docs/startup-recovery-investigation.md` | Historical startup evidence | Recovered score project opened privately after cache archival; that earlier process had no observed handshake |
 | `native/bridge/CubaseMcpNativeProbe.cpp`, `native/bridge/ProjectHostAbi.h` | Fixed diagnostic DLL sources | Earlier host request returned an error callback; fixed path lookup and Unicode setter/field checks returned in the isolated process |
 | `native/NativeProbeLoader.cs`, fixed `scripts/Invoke-*Probe.ps1` wrappers | Explicit isolated diagnostic loader | Two fixed module images and three hardcoded entry choices with one-shot guards; not an MCP backend |
 | `scripts/Build-PathRoundTripProbe.ps1`, `scripts/Invoke-PathRoundTripProbe.ps1` | Fixed temporary path-object diagnostic | Synthetic Unicode setter and bounded object-field comparison succeeded; no project operation |
@@ -48,7 +52,7 @@
 | `docs/midi-detection-predicate.md`, `scripts/midi-detection-predicate.py` | Fixed detector-predicate investigation | Script-path lookup and rejection-set machinery identified; activation trigger unresolved |
 | `docs/midi-activation-dispatch.md`, `docs/midi-detection-ports.md`, `scripts/midi-detection-ports.py` | MIDI activation investigation | Prepared-command and detector paths bounded; execution and port-pairing trigger remain unverified |
 | `docs/project-lifecycle-followup.md` | Project lifecycle follow-up | Native save stream and error-path research; no project CRUD execution claimed |
-| `scripts/Read-MidiHostEnvironment.ps1`, `docs/midi-host-environment.md` | Read-only isolated MIDI Remote model diagnostic | Current bounded snapshot found empty input/output collections; no activation claim |
+| `scripts/Read-MidiHostEnvironment.ps1`, `docs/midi-host-environment.md` | Read-only isolated MIDI Remote model diagnostic | Session 24 snapshots found empty collections before first open and named ports afterward; controller console separately recorded activation |
 | `scripts/Read-MidiPortInformer.ps1`, `docs/midi-host-port-adapter.md`, `docs/midi-informer-tree.md` | Read-only isolated informer and registry diagnostic | Adapter registration, empty informer trees and target-named MME registry sockets observed; propagation cause unresolved |
 | `scripts/Read-MidiScannerState.ps1`, `docs/midi-informer-source.md`, `docs/midi-scanner-detail.md` | Read-only MIDI scanner investigation | Two target-named records had empty detail ranges; detail semantics and event history unresolved |
 | `docs/midi-detection-correlation.md`, `docs/midi-project-gate.md`, `docs/midi-project-notifications.md`, `docs/midi-project-tree-meaning.md`, `scripts/midi-detection-correlation.py`, `scripts/midi-project-tree-meaning.py` | MIDI Remote project and scanner gate research | Distinct tree paths, project-notification insertion and a root-selection sender identified; live event ordering unresolved |
@@ -58,10 +62,10 @@
 | `scripts/Read-DawprojectHostContext.ps1`, `scripts/dawproject-host-context-inspect.py`, `docs/dawproject-host-context.md` | Read-only host context and listener investigation | MProject/MRoot vtables and informer listener membership observed; active-project and import semantics unverified |
 | `scripts/Read-DawprojectRootField.ps1`, `scripts/project-tempo-source-23-inspect.py`, `docs/dawproject-active-project.md`, `docs/project-tempo-field-22.md`, `docs/project-tempo-source-23.md` | Read-only MRoot field investigation | Static `Transport/Tempo/value` import-to-float trace; units and lifecycle operation remain unverified |
 | `docs/project-save-target.md` | Native save destination and cleanup investigation | Conditional file deletion and creation paths identified; exact targets and recovery semantics unresolved |
-| `scripts/Trace-MidiStartup.ps1`, `docs/midi-startup-timeline.md` | Isolated read-only startup snapshots | Explicit same-directory next CPR, bounded listener/tree and desktop/title samples; diagnostic only |
+| `scripts/Trace-MidiStartup.ps1`, `docs/midi-startup-timeline.md` | Isolated read-only startup and transition snapshots | Explicit CPR or no-argument prearm and ready/stream transition mode; bounded listener/tree and desktop/title samples; diagnostic only |
 | `tests/background-launch-pipe.ps1` | Focused background-launch contract check | Existing-instance guard returned through captured stdout with separate holder logs; a fresh launch was not tested by this check |
 | `docs/project-open-routing.md`, `docs/project-lifecycle-dispatch.md`, `scripts/project-lifecycle-dispatch-inspect.py` | Lifecycle routing and dispatcher investigation | Static paths and file association observed; main-thread affinity and unattended lifecycle contract remain unverified |
-| `docs/midi-coverage-3.4.md` | Bank-channel coverage and limits | Declaration-backed guarded controls; current live mapping and project operations remain unverified |
+| `docs/midi-coverage-3.4.md` | Bank-channel coverage and limits | Declaration-backed guarded controls; individual bank behavior and project operations remain unverified |
 | `docs/midi-coverage-3.5.md` | Bank insert viewer coverage and limits | Read-only values and identity-guarded navigation fixture-tested; live operation remains unverified |
 | `docs/midi-project-event-sources.md`, `docs/project-activation-route.md`, associated `scripts/*-inspect.py` | Project selector and event-source investigation | Seven static direct callers and old/new notifications verified; no public background activation contract established |
 | `docs/project-activation-provenance.md`, `scripts/project-activation-provenance-inspect.py` | Project activation sender/receiver investigation | Arranger vtable and separate remote-wheel producer statically identified; relationship and dispatch remain unverified |
@@ -83,10 +87,10 @@
 | `scripts/project-open-16-snapshot.ps1`, `scripts/project-open-16-inspect.py`, `scripts/project-open-lifetime-16-inspect.py`, `docs/project-open-16.md` | Host-open thread and ownership | Calling-thread comparison and saved thread ID observed; conditional path copies and message fields traced; delivery, full lifetime and completion unresolved |
 | `scripts/project-create-save-16-inspect.py`, `docs/project-create-save-16.md` | Additional save predicate | Local-volume branch narrowed; target, alerts and save completion unresolved |
 | `scripts/midi-activation-16-inspect.py`, `docs/midi-activation-16.md` | Scanner request-path follow-up | Output-collection return and conditional request-object submission traced; transmission and mapping unverified |
-| `docs/midi-coverage-3.6.md` | Selected-channel guards and verifier | Historical 3.6 fixture and host-construction evidence; later 3.8 activation remains unverified |
-| `docs/midi-plugin-banks-3.7.md` | Instrument and strip parameter-bank controls | 3.7 fixture and historical deployment evidence; 3.8 is installed and the current host still logs 3.6 construction |
+| `docs/midi-coverage-3.6.md` | Selected-channel guards and verifier | Historical 3.6 fixture and host-construction evidence; current 3.8 mapping has activated |
+| `docs/midi-plugin-banks-3.7.md` | Instrument and strip parameter-bank controls | 3.7 fixture and historical deployment evidence; 3.8 mapping has activated, individual plug-in banks remain unverified live |
 | `native/ActivationSnapshot21.cpp`, `scripts/Build-ActivationSnapshot21.ps1`, `scripts/Read-ActivationCandidates21.ps1`, `docs/project-activation-stack-21.md` | Isolated process/thread context research | One fixed PSS context captured; separate stack reads are not synchronized and prompt decision remains unknown |
-| `docs/midi-parameter-lock-3.8.md` | DirectAccess edit-lock setter | Guarded setter fixture-tested and installed; live mapping and mutation unverified |
+| `docs/midi-parameter-lock-3.8.md` | DirectAccess edit-lock setter | Guarded setter fixture-tested, installed, and observed on one live parameter with restoration |
 | `scripts/Read-ActivationPredicates22.ps1`, `scripts/Read-ProjectList22.ps1`, `scripts/Read-ProjectRootDocuments22.ps1`, `docs/project-activation-static-22.md`, `docs/project-activation-predicates-22.md`, `docs/project-list-22.md`, `docs/project-root-documents-22.md` | Activation branch and post-prompt project candidates | Two distinct root/document/path candidates observed; no activation, completion or persistence claim |
 | `native/ActivationClone22.cpp`, `scripts/Build-ActivationClone22.ps1`, `scripts/Observe-ActivationClone23.ps1`, `docs/project-activation-clone-22.md` | Synthetic-only PSS clone/stack walk | Named-frame walk passed both without and with a synthetic restricted Job; inventory absence does not prove full resource release |
 | `docs/project-open-options-23.md` | Fixed-build open-call and activation branch analysis | Conditional prompt-skip path identified without a verified unattended call or completed open |
@@ -128,3 +132,4 @@
 | 2026-11-10 | Added and installed guarded instrument/strip parameter banks, passed 89 tests, and captured one isolated thread context; live mapping and project lifecycle remain open. |
 | 2026-11-10 | Added and installed guarded edit-lock setter, passed 91 tests, traced activation and a tempo-field import path, and observed two root/path candidates; synthetic clone validation failed. |
 | 2026-11-10 | Linked DAWproject tempo parsing to the candidate host field, validated synthetic walks, and captured one truncated target stack consistent with OpenFile dispatch to the prompt. |
+| 2026-11-10 | Observed empty startup and one fixed first-project submission; 3.8 mapping and MCP reads active, DirectAccess value and edit-lock round trips observed, separate track-volume binding write unverified. |

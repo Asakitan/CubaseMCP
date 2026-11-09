@@ -33,4 +33,4 @@ Revision 3.6 adds optional selected-channel runtime-ID guards and clears selecte
 
 Revision 3.7 adds selected-instrument and bank-channel instrument/strip parameter pages and guarded navigation. Five focused tests and the 89-test suite passed; installation was verified, but current mapping activation and the new controls are not yet verified in the live host (`docs/midi-plugin-banks-3.7.md`).
 
-Revision 3.8 adds a guarded DirectAccess edit-lock setter; the 91-test suite passed and installation was verified, while its live mapping and mutation remain unverified (`docs/midi-parameter-lock-3.8.md`).
+Revision 3.8 adds a guarded DirectAccess edit-lock setter; the 91-test suite passed and installation was verified. In session 24 its mapping activated and a Stereo Out DirectAccess volume parameter was written and restored; its edit lock was separately changed and restored with readback. A separate selected-track volume control write was not observed at its target; see `docs/first-project-open-24.md` and `docs/midi-parameter-lock-3.8.md`.
