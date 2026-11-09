@@ -36,8 +36,9 @@
 | `docs/service-request-contract.md` | Service ABI investigation | Empty-input return validated independently; complete live request contract pending |
 | `docs/project-lifecycle-contract.md` | Native lifecycle research | Marker/listener paths bounded; no complete project CRUD contract |
 | `docs/startup-recovery-investigation.md` | Current startup evidence | Recovered score project opened privately after cache archival; current handshake absent |
-| `native/bridge/CubaseMcpNativeProbe.cpp`, `native/bridge/ProjectHostAbi.h` | Fixed diagnostic DLL | Approved in-process host query and one correlated error callback; no project data |
-| `native/NativeProbeLoader.cs`, `scripts/Invoke-NativeProbe.ps1` | Explicit isolated diagnostic loader | Fixed module and build profile only; not an MCP backend |
+| `native/bridge/CubaseMcpNativeProbe.cpp`, `native/bridge/ProjectHostAbi.h` | Fixed diagnostic DLL | Earlier host request returned an error callback; separate fixed path-class lookup and release returned in the current isolated process |
+| `native/NativeProbeLoader.cs`, `scripts/Invoke-NativeProbe.ps1`, `scripts/Invoke-PathServiceProbe.ps1` | Explicit isolated diagnostic loader | Fixed module, two mutually exclusive entries and build profile only; not an MCP backend |
+| `tests/probe-wrapper-policy.ps1` | Fixed diagnostic entry-result policy | Both wrappers' success, incomplete-entry and error guards checked without launching Cubase |
 | `scripts/Read-MidiScriptErrors.ps1` | Isolated script-console reader | Bounded read-only script-path diagnostics verified for earlier/current test processes |
 | `tests/entry.test.cjs`, `tests/midi-port-clients.ps1`, `tests/probe-wrapper-policy.ps1` | Entry/driver/diagnostic regressions | Top-level script, actual virtual-port client identity and probe exit-policy tests passed |
 | `docs/midi-coverage-3.md`, `docs/midi-insert-viewer.md`, `docs/midi-mixer-bank.md`, `docs/midi-script-state.md` | Controller and live-script evidence | Pagination, guarded mixer/insert controls and observed activation gap documented |
@@ -64,12 +65,15 @@
 | `docs/midi-project-event-sources.md`, `docs/project-activation-route.md`, associated `scripts/*-inspect.py` | Project selector and event-source investigation | Seven static direct callers and old/new notifications verified; no public background activation contract established |
 | `docs/project-activation-provenance.md`, `scripts/project-activation-provenance-inspect.py` | Project activation sender/receiver investigation | Arranger vtable and separate remote-wheel producer statically identified; relationship and dispatch remain unverified |
 | `scripts/project-save-alert-inspect.py`, `docs/project-save-target.md` | Save error alert-service investigation | Fixed static path and read-only global snapshot; no save or dialog invoked |
-| `scripts/project-host-open-interface-inspect.py`, `docs/project-host-open-interface.md` | Host project-open interface investigation | Shipped-component path and path-family interface traced statically; no host method or project action invoked |
+| `scripts/project-host-open-interface-inspect.py`, `docs/project-host-open-interface.md` | Host project-open interface investigation | Shipped-component path traced statically; fixed path-class lookup succeeded, while no host-open or project action was invoked |
 | `scripts/Read-PluginContextStatic.ps1` | Read-only static host-context and registration snapshot | PID, private desktop and PE profile checked; context vtables and path-factory record in its IID bucket observed without a host or factory call |
 | `scripts/project-instance-routing-inspect.py`, `docs/project-instance-routing.md` | Candidate second-instance routing investigation | State-dependent foreground call identified; no second-instance experiment performed |
 | `scripts/project-save-preflight-inspect.py`, `docs/project-save-preflight.md` | Save preflight investigation | Conditional alert-service call precedes file-open site; prompt and save results remain unverified |
 | `scripts/template-startup-path-inspect.py`, `docs/template-startup-path.md` | Historical template and path-argument investigation | Early successful live verification and current action arguments compared without inferring cause |
 | `scripts/midi-project-queue-consumer-inspect.py`, `docs/midi-project-queue-consumer.md` | Posted-message queue and receiver investigation | Conditional dispatch and eleven decoded direct callers identified; actual delivery remains unverified |
+| `scripts/project-open-14-inspect.py`, `docs/project-open-14.md` | Host open and drag-path follow-up | Caller identified as drag-data enumeration; queued open return does not prove enqueue or completion |
+| `scripts/project-save-preflight-state-inspect.py`, `docs/project-save-preflight.md` | Save preflight state provenance | Shared startup-state byte identified; meaning, prompt and save outcome remain unresolved |
+| `scripts/midi-activation-14-inspect.py`, `docs/midi-activation-14.md` | MIDI scanner inquiry and rebuild follow-up | Static inquiry registration and receiver provenance identified without asserting name-detection causality |
 
 ## Update Log
 
@@ -89,3 +93,4 @@
 | 2026-11-10 | Expanded identity-guarded bank controls in revision 3.4 and traced additional static project-selector callers; real mapping and lifecycle verification remain open. |
 | 2026-11-10 | Added revision 3.5 bank insert viewers and traced save alert and activation provenance; real mapping and project lifecycle remain unverified. |
 | 2026-11-10 | Measured the 3.5 no-write status timeout and current informer snapshot; traced host-open, second-instance, save-preflight and queue-consumer paths without invoking a project operation. |
+| 2026-11-10 | Verified one isolated in-process path-class lookup and release; traced open enqueue, save preflight and MIDI scanner follow-ups without a project action. |

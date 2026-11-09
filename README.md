@@ -74,7 +74,7 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 
 较早的 `artifacts/live-smoke/verification.json` 记录了真实 Cubase AI 16.0.5 的发现、参数、反馈和音量写入恢复；它不证明本轮新增控制项、工程存储或完整功能覆盖。新版 `verify:live` 脚本要求当前控制器，旧记录与本轮实机验收分别记录。详细状态见 [STATUS](STATUS.md)。
 
-**当前状态（第 13 轮）**：专用隔离实例已打开单独的 `MCP Device Test 20261110.cpr` 实验副本；当前 3.5 的无写入 MIDI 状态请求超时，新增控制项尚无实机验收。较早实例的启动时序采样先观察到工程根节点，再观察到通知器和监听器登记；当前实例的短时采样也观察到空通知树，事件历史仍待确认。静态研究定位到宿主工程打开接口及安装组件调用链，只读快照观察到相应宿主上下文对象的接口表；实际调用、线程、完成结果和提示行为仍待验证。创建、存储、编辑工程和完整功能验收仍在进行。详见 [启动时序记录](docs/midi-startup-timeline.md)、[宿主打开接口](docs/project-host-open-interface.md) 与 [端口模型调查](docs/midi-host-environment.md)。
+**当前状态（第 14 轮）**：专用隔离实例已打开单独的 `MCP Device Test 20261110.cpr` 实验副本；当前 3.5 的无写入 MIDI 状态请求超时，新增控制项尚无实机验收。只读快照观察到宿主上下文和路径工厂登记，随后一次隔离进程内诊断成功获取并释放了临时路径接口对象；这不是工程打开或存储操作。宿主工程打开的线程、完成结果和提示行为仍待验证。创建、存储、编辑工程和完整功能验收仍在进行。详见 [启动时序记录](docs/midi-startup-timeline.md)、[宿主打开接口](docs/project-host-open-interface.md) 与 [端口模型调查](docs/midi-host-environment.md)。
 
 ## 原生项目接口调查
 

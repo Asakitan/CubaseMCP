@@ -71,8 +71,9 @@ namespace CubaseAiMcp
             throw new InvalidDataException("Export is outside file-backed sections.");
         }
 
-        static uint EntryRva(string path)
+        static uint EntryRva(string path, string wanted)
         {
+            if (wanted != "StartProbe" && wanted != "StartPathProbe") throw new InvalidDataException("Unknown fixed diagnostic entry.");
             if (new FileInfo(path).Length > 16 * 1024 * 1024) throw new InvalidDataException("Probe image exceeds the bound.");
             byte[] image = File.ReadAllBytes(path);
             int pe = Header(image);
@@ -81,7 +82,6 @@ namespace CubaseAiMcp
             uint functions = BitConverter.ToUInt32(image, e + 20), names = BitConverter.ToUInt32(image, e + 24);
             if (functions > 4096 || names > 4096) throw new InvalidDataException("Export count exceeds the bound.");
             uint functionsRva = BitConverter.ToUInt32(image, e + 28), namesRva = BitConverter.ToUInt32(image, e + 32), ordinalsRva = BitConverter.ToUInt32(image, e + 36);
-            const string wanted = "StartProbe";
             for (uint i = 0; i < names; i++)
             {
                 uint nameRva = BitConverter.ToUInt32(image, Offset(image, pe, namesRva + i * 4, 4));
@@ -94,7 +94,7 @@ namespace CubaseAiMcp
                 Offset(image, pe, rva, 1, true);
                 return rva;
             }
-            throw new InvalidDataException("StartProbe export is absent.");
+            throw new InvalidDataException("Fixed diagnostic export is absent.");
         }
 
         static IntPtr TargetLoadLibrary(Process target)
@@ -115,13 +115,23 @@ namespace CubaseAiMcp
 
         public static Result LoadAndStart(int processId, long expectedCreationFileTime, string workspaceRoot)
         {
+            return LoadAndStartFixed(processId, expectedCreationFileTime, workspaceRoot, false);
+        }
+
+        public static Result LoadAndStartPathProbe(int processId, long expectedCreationFileTime, string workspaceRoot)
+        {
+            return LoadAndStartFixed(processId, expectedCreationFileTime, workspaceRoot, true);
+        }
+
+        static Result LoadAndStartFixed(int processId, long expectedCreationFileTime, string workspaceRoot, bool pathProbe)
+        {
             Result report = new Result { ProcessId = processId, ModulePath = Path.GetFullPath(Path.Combine(workspaceRoot, "artifacts", "native-probe", "CubaseMcpNativeProbe.dll")) };
             IntPtr process = IntPtr.Zero, pathBuffer = IntPtr.Zero, thread = IntPtr.Zero;
             bool loadStarted = false, loadCompleted = false;
             try
             {
                 if (IntPtr.Size != 8) throw new InvalidOperationException("An AMD64 loader is required.");
-                uint entry = EntryRva(report.ModulePath);
+                uint entry = EntryRva(report.ModulePath, pathProbe ? "StartPathProbe" : "StartProbe");
                 using (Process target = Process.GetProcessById(processId))
                 {
                     if (target.ProcessName != "Cubase 16" || !String.Equals(target.MainModule.FileName,
