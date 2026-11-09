@@ -26,3 +26,4 @@
 | [22](session-22.md) | 2026-11-10 | Add guarded parameter edit locks and trace two post-prompt project root/path candidates. |
 | [23](session-23.md) | 2026-11-10 | Trace tempo-value flow and capture a partial fixed-target OpenFile/prompt stack. |
 | [24](session-24.md) | 2026-11-10 | Observe empty startup, first-project state and mapping activation; verify live reads and one DirectAccess write/restore while a separate control write remains unverified. |
+| [25](session-25.md) | 2026-11-10 | Inspect CPR framing and a project-path candidate, trace New/Hub and save paths, and test a distinct bank-volume binding. |

@@ -16,8 +16,8 @@
 - [x] Requirements and strict background constraints recorded.
 - [x] Project scaffold and dependencies installed.
 - [x] No editor extension installation required.
-- [x] Expanded controller integration and build complete (91 tests); coverage-3.8 is installed and its current isolated mapping has activated.
+- [x] Expanded controller integration and build complete (93 tests); coverage-3.8 is installed and its current isolated mapping has activated.
 - [x] Native MIDI prerequisites and earlier real Cubase AI16.0.5 core-chain verification recorded.
 - [x] Observe current device/mapping activation and live MCP read/discovery without foreground input; one distinct DirectAccess parameter write and restore were observed.
-- [ ] Resolve the separate selected-track volume binding write whose requested value was not observed; validate additional controls individually.
+- [ ] Resolve the separate selected-track and bank-channel volume binding writes whose requested values were not observed; validate additional controls individually.
 - [ ] Implement and verify project creation, saving, event editing, rendering and remaining Cubase feature coverage.

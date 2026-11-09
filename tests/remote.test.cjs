@@ -1215,6 +1215,17 @@ test('host value feedback is not suppressed during a surface write', () => {
     assert.equal(response.data.after.value, 0.5);
 });
 
+test('surface echo alone does not claim a submitted host change was observed', () => {
+    const harness = fixture();
+    const surface = harness.surfaces['track.volume'];
+    surface.hostValue.mOnProcessValueChange(harness.device, harness.currentMapping(), 0.7890625);
+    const response = harness.call('controls.set', { key: 'track.volume', value: 0.25 });
+    assert.equal(response.data.execution, 'submitted');
+    assert.equal(response.data.before.value, 0.7890625);
+    assert.equal(response.data.after.value, 0.7890625);
+    assert.equal(harness.call('controls.get', { key: 'track.volume' }).data.control.observed.value, 0.7890625);
+});
+
 test('native callback properties may be write-only', () => {
     const harness = fixture((api, state, { host }) => {
         const create = host.makeDirectAccess;

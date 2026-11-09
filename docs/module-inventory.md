@@ -8,12 +8,12 @@
 | `src/doctor.ts` | `dist/src/doctor.js` | Reports operational readiness separately from handshake availability |
 | `src/midi.ts` | `dist/src/midi.js` | 15 tests passed; exact ports, deadline and fault latch |
 | `remote/protocol.js` | Driver folder and `dist/remote/protocol.js` | 2 protocol tests passed |
-| `remote/controller.js` | Driver folder | Coverage 3.8 installed and current host mapping activated; DirectAccess parameter and edit-lock round trips observed, selected-track volume binding write unverified |
+| `remote/controller.js` | Driver folder | Coverage 3.8 installed and current host mapping activated; DirectAccess parameter and edit-lock round trips observed, selected-track and bank volume binding writes unverified |
 | `remote/CubaseAI_MCP.js` | Driver entry | Top-level CommonJS export removed; ES5 regression passed and current host logged controller construction |
 | `remote/commands.js` | Driver command allowlist | 3 fixed bindings; ES5 verified and installed |
 | `scripts/Install-Remote.ps1` | Local driver installation | Four files deployed; no Cubase launch |
 | `.vscode/mcp.json` | VS Code stdio server | Configured against built entry |
-| `.vscode/tasks.json` | Build/test/install/live-diagnostic tasks | Build and 91-test suite passed; current MCP reads succeeded and one DirectAccess parameter was written/restored |
+| `.vscode/tasks.json` | Build/test/install/live-diagnostic tasks | Build and 93-test suite passed; current MCP reads succeeded and one DirectAccess parameter was written/restored |
 | `scripts/Install-Midi.ps1` | Installed loopMIDI/virtualMIDI driver | Explicit installation completed |
 | `native/MidiPortHost.cs` | Hidden PowerShell port process | Real SysEx loopbacks and client-PID query tested |
 | `scripts/Start-MidiPorts.ps1` | Two exact-name virtual ports | Running with explicit stop and correlated one-shot client inspection |
@@ -23,6 +23,9 @@
 | `scripts/Read-FirstProjectState24.ps1`, `scripts/Prepare-FirstProjectOpen24Fixture.ps1`, `scripts/Observe-FirstProjectOpen24.ps1` | Fixed session 24 admission, copied fixture and passive observer | No-project state and Job sampled; 512 observer samples without a recorded desktop violation; polling is non-atomic |
 | `native/FirstProjectJobAudit24.cs`, `native/FirstProjectOpen24Loader.cs`, `native/bridge/CubaseMcpFirstProjectOpen24.cpp`, `scripts/Build-FirstProjectOpen24.ps1`, `scripts/Invoke-FirstProjectOpen24.ps1` | Fixed one-shot diagnostic outside MCP runtime | Built; one fixture submission returned zero and subsequent project root/tree and 3.8 activation were observed; no lifecycle completion claimed |
 | `docs/background-empty-start-24.md`, `docs/empty-start-static-24.md`, `docs/first-project-open-24.md` | Session 24 launch, static-branch and first-project evidence | Diagnostic scope, sampling limitations, mapping activation and individual live MCP observations recorded |
+| `scripts/inspect-cpr-envelope.cjs`, `tests/cpr-envelope.test.cjs`, `docs/cpr-envelope-25.md` | Read-only CPR outer-envelope diagnostic | Synthetic malformed framing checks and one fixture inspection passed; no archive semantics or persistence claim |
+| `scripts/Read-CurrentProjectPath25.ps1`, `scripts/save-25-path-static.py`, `docs/project-save-25.md` | Fixed read-only project path candidate and save-path static trace | One root/document/path candidate observed; actual save destination, dirty and completion unresolved |
+| `scripts/project-create-25-inspect.py`, `docs/project-create-25.md`, `docs/control-binding-25.md` | File-only creation branch and live control-binding evidence | Conditional Hub service call traced; two distinct control submissions remained unconfirmed |
 | `native/CubaseDeviceRefresh.cs` | Fixed isolated device notification diagnostic | Private worker-thread binding; delivery/reconnection unverified |
 | `scripts/Refresh-CubaseDevices.ps1` | Explicit device refresh diagnostic | Structured errors; no arbitrary message or MCP route |
 | `scripts/verify-live.cjs`, `tests/verify-live.test.cjs` | Actual stdio MCP verifier | Current 3.8 reads/discovery passed; Piano control write target was not observed and no restore was submitted |
@@ -133,3 +136,4 @@
 | 2026-11-10 | Added and installed guarded edit-lock setter, passed 91 tests, traced activation and a tempo-field import path, and observed two root/path candidates; synthetic clone validation failed. |
 | 2026-11-10 | Linked DAWproject tempo parsing to the candidate host field, validated synthetic walks, and captured one truncated target stack consistent with OpenFile dispatch to the prompt. |
 | 2026-11-10 | Observed empty startup and one fixed first-project submission; 3.8 mapping and MCP reads active, DirectAccess value and edit-lock round trips observed, separate track-volume binding write unverified. |
+| 2026-11-10 | Added read-only CPR envelope and project-path diagnostics, traced New/Hub and save-path branches, and observed a second distinct unconfirmed bank-volume control submission. |

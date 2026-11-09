@@ -1,8 +1,16 @@
 # Cubase AI 16 MCP
 
-Version: 0.1.0. The complete user goal remains active and is not achieved. The current server has 24 MIDI Remote tools; project creation, saving, event editing and parameterized rendering are not implemented. The current 3.8 mapping and live reads work, and one distinct DirectAccess parameter write and restoration were observed; a separate track-control write remains unverified.
+Version: 0.1.0. The complete user goal remains active and is not achieved. The current server has 24 MIDI Remote tools; project creation, saving, event editing and parameterized rendering are not implemented. The current 3.8 mapping and live reads work, and one distinct DirectAccess parameter write and restoration were observed; two separate control-binding writes remain unverified.
 
-## Current session 24 evidence
+## Current session 25 evidence
+
+- A bounded read-only PID 72128 snapshot traversed one project-list node to a root matching the global root, a document back-reference and a lexical path candidate naming the owned `First Empty Probe 24.cpr`; it is not proof of authoritative active-project selection, dirty state or actual save target (`docs/project-save-25.md`). Static follow-up found conditional input-path manipulation and a separate path-shaped output object before the save file-open branch, so the eventual target and noninteractive completion remain unresolved.
+- A read-only bounded CPR envelope inspector recorded 12 RIFF/NUND chunks in that 93,085-byte fixture. This is structural framing only, not semantic contents, creation, completed save or persistence (`docs/cpr-envelope-25.md`).
+- A new distinct Stereo Out bank-volume control request to `0.75` was submitted once. Immediate and later DirectAccess reads remained `0.7890865802764893`; no restore or replay was submitted. Together with the earlier Piano result, the discrepancy is not confined to a single selected-track control, but its cause remains unknown. A 173-sample observer recorded no target foreground or input-desktop sample (`docs/control-binding-25.md`).
+- Static `New`/`NewWithHub` tracing identified a shared conditional Hub service call, not a proven parameterized or no-dialog creation route (`docs/project-create-25.md`). The old submitted operations remain `unknown` and were not replayed.
+- The TypeScript build and complete Node suite passed **93/93**. The CPR malformed-framing test, fixed-process positive and wrong-PID rejection checks, and bounded static trace scripts also passed.
+
+## Session 24 evidence
 
 - After backing up owned fixtures and the earlier receipt, a no-CPR-argument isolated launch created Cubase PID 72128 and holder PID 55324. A prearmed 120-second capture started 0.120866 seconds after process start and observed the root absent with the informer and listener in 822 of 878 samples, with 56 pending and no sample errors. Input desktop samples were `Default`; this polling is not a continuous history (`docs/background-empty-start-24.md`, `docs/midi-startup-timeline.md`).
 - A distinct fixed first-project diagnostic submitted a copied fixture once. Its return value is submission only; later samples observed the same-name window, root and informer-tree membership. The 3.8 script console recorded device and mapping activation, and a real MCP status/discovery request succeeded (`docs/first-project-open-24.md`). Two earlier open submissions in separate processes remain `unknown` and were not replayed.
@@ -139,7 +147,7 @@ Version: 0.1.0. The complete user goal remains active and is not achieved. The c
 
 ## Code and verification
 
-- TypeScript build passed; the current `npm test` run passed **91/91**, with no skipped tests. The earlier `tests/midi-port-clients.ps1` passed against the installed virtualMIDI driver. Fixture results are not live Cubase feature certification.
+- TypeScript build passed; the current `npm test` run passed **93/93**, with no skipped tests. The earlier `tests/midi-port-clients.ps1` passed against the installed virtualMIDI driver. Fixture results are not live Cubase feature certification.
 - Earlier source/server and installed controller revision `2026-11-10-coverage-3.3` added eight identity-guarded mixer bank channel slots to revision 3.2's fixed insert viewers and guarded actions, strip parameter banks, Control Room selectors, compact status, independent paging and lifecycle messages. Cubase logged construction, but its mapping and new controls have not been live-verified. A large-host fixture reproduced the old oversized status failure before pagination. Long identity strings remain exact. The replaced controller and test CPR were preserved under `artifacts/runtime/before-coverage-3.3-20261110-040212`.
 - All session operations enforce the current revision, Cubase major version and session. Submitted writes and timeouts are not reported as completed mutations. The live verifier now queries an individual volume control rather than assuming its position in a list page.
 - Native probes and static analysis are diagnostics only. They do not expose arbitrary RPC, modify host instructions or provide a second runtime execution route. `docs/project-lifecycle-contract.md` records candidate open-project paths and unresolved threading/dialog contracts.
