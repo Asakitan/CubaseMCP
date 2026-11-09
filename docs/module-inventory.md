@@ -13,7 +13,7 @@
 | `remote/commands.js` | Driver command allowlist | 3 fixed bindings; ES5 verified and installed |
 | `scripts/Install-Remote.ps1` | Local driver installation | Four files deployed; no Cubase launch |
 | `.vscode/mcp.json` | VS Code stdio server | Configured against built entry |
-| `.vscode/tasks.json` | Build/test/install/live-diagnostic tasks | Build and 77-test suite passed; current real-host handshake remains unverified |
+| `.vscode/tasks.json` | Build/test/install/live-diagnostic tasks | Build and 77-test suite passed; current no-write real-host status request timed out |
 | `scripts/Install-Midi.ps1` | Installed loopMIDI/virtualMIDI driver | Explicit installation completed |
 | `native/MidiPortHost.cs` | Hidden PowerShell port process | Real SysEx loopbacks and client-PID query tested |
 | `scripts/Start-MidiPorts.ps1` | Two exact-name virtual ports | Running with explicit stop and correlated one-shot client inspection |
@@ -64,6 +64,12 @@
 | `docs/midi-project-event-sources.md`, `docs/project-activation-route.md`, associated `scripts/*-inspect.py` | Project selector and event-source investigation | Seven static direct callers and old/new notifications verified; no public background activation contract established |
 | `docs/project-activation-provenance.md`, `scripts/project-activation-provenance-inspect.py` | Project activation sender/receiver investigation | Arranger vtable and separate remote-wheel producer statically identified; relationship and dispatch remain unverified |
 | `scripts/project-save-alert-inspect.py`, `docs/project-save-target.md` | Save error alert-service investigation | Fixed static path and read-only global snapshot; no save or dialog invoked |
+| `scripts/project-host-open-interface-inspect.py`, `docs/project-host-open-interface.md` | Host project-open interface investigation | Shipped-component path and path-family interface traced statically; no host method or project action invoked |
+| `scripts/Read-PluginContextStatic.ps1` | Read-only static host-context and registration snapshot | PID, private desktop and PE profile checked; context vtables and path-factory record in its IID bucket observed without a host or factory call |
+| `scripts/project-instance-routing-inspect.py`, `docs/project-instance-routing.md` | Candidate second-instance routing investigation | State-dependent foreground call identified; no second-instance experiment performed |
+| `scripts/project-save-preflight-inspect.py`, `docs/project-save-preflight.md` | Save preflight investigation | Conditional alert-service call precedes file-open site; prompt and save results remain unverified |
+| `scripts/template-startup-path-inspect.py`, `docs/template-startup-path.md` | Historical template and path-argument investigation | Early successful live verification and current action arguments compared without inferring cause |
+| `scripts/midi-project-queue-consumer-inspect.py`, `docs/midi-project-queue-consumer.md` | Posted-message queue and receiver investigation | Conditional dispatch and eleven decoded direct callers identified; actual delivery remains unverified |
 
 ## Update Log
 
@@ -82,3 +88,4 @@
 | 2026-11-10 | Added prearmed startup sampling, documented project routing, and detached background-holder output; observed root-before-informer samples and an empty notification tree, while the current MCP handshake timed out. |
 | 2026-11-10 | Expanded identity-guarded bank controls in revision 3.4 and traced additional static project-selector callers; real mapping and lifecycle verification remain open. |
 | 2026-11-10 | Added revision 3.5 bank insert viewers and traced save alert and activation provenance; real mapping and project lifecycle remain unverified. |
+| 2026-11-10 | Measured the 3.5 no-write status timeout and current informer snapshot; traced host-open, second-instance, save-preflight and queue-consumer paths without invoking a project operation. |

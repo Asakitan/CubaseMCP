@@ -22,6 +22,8 @@ The helper obtains its indirect receiver through `0x3ad6050` with a zero argumen
 
 A bounded read-only snapshot of the then-running isolated PID 46868 at `2026-11-09T17:50:59Z` found provider and cache globals both zero and the manager global nonzero (`artifacts/ipc/project-save-alert-state-46868.json`). Process start, executable version, image base and PE timestamp were checked; the three global reads were repeated, but no lock or service call was used. That snapshot is consistent with the getter having not populated those globals; it does not establish that a save error occurred or what a later lookup will return. `scripts/project-save-alert-inspect.py` verifies the PE profile and interface string before printing the fixed disassembly slices.
 
+A later static trace found another conditional invocation of that alert-service getter before the identified file-open call. The condition and effective provider are unresolved; see `project-save-preflight.md`.
+
 ## Remaining discriminators
 
 1. Reconstruct the path-component transformations and subsequent filesystem rename/replace branches, including the exact selected path before `CreateFileW`.
