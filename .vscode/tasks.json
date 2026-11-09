@@ -1,0 +1,72 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build Cubase AI16 MCP",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"build"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Test Cubase AI16 MCP",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"test"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Install Cubase AI16 Remote",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"install:remote"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Diagnose Cubase AI16 Connection",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"doctor",
+				"--",
+				"--live"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Inspect Cubase Project Factory",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "scripts/Inspect-ProjectFactory.ps1"],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Inspect Cubase Native IPC 20261110",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"scripts/inspect-cubase-ipc.cjs"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}

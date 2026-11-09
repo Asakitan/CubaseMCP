@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "cubase-ai16-headless": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/dist/src/server.js"],
+      "env": {
+        "CUBASE_MCP_CONFIG": "${workspaceFolder}/cubase.config.json"
+      }
+    }
+  }
+}

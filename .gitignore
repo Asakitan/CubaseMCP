@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.test-build/
+artifacts/
+.vscode/handoff/
+*.log
+__pycache__/
+/host-project-*.txt
+/host-project-*.json
+/service-probe-*.json
+/guard-live-*.json

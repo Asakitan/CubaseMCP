@@ -1,0 +1,32 @@
+{
+  "name": "cubase-ai16-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Strict background-only Cubase AI 16 MCP over a single MIDI Remote connection",
+  "type": "commonjs",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test tests/*.test.cjs",
+    "start": "node dist/src/server.js",
+    "doctor": "node dist/src/doctor.js",
+    "install:remote": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Install-Remote.ps1",
+    "setup:midi": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Install-Midi.ps1",
+    "start:ports": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Start-MidiPorts.ps1 -Background",
+    "stop:ports": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Start-MidiPorts.ps1 -Stop",
+    "start:cubase-background": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Start-CubaseBackground.ps1 -Background",
+    "verify:live": "node scripts/verify-live.cjs"
+  },
+  "dependencies": {
+    "@julusian/midi": "3.8.1",
+    "@modelcontextprotocol/server": "2.4.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
+    "@types/node": "^24.0.0",
+    "acorn": "^8.15.0",
+    "typescript": "~5.9.3"
+  }
+}

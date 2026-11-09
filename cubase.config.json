@@ -1,0 +1,19 @@
+{
+  "backend": "midi",
+  "policy": {
+    "backgroundOnly": true,
+    "fallback": false,
+    "automaticRetry": false
+  },
+  "target": {
+    "majorVersion": 16,
+    "edition": "AI",
+    "installationDirectory": "C:\\Program Files\\Steinberg\\Cubase 16",
+    "installerDirectory": "D:\\CubaseAI"
+  },
+  "midi": {
+    "input": "CubaseAI MCP From Cubase",
+    "output": "CubaseAI MCP To Cubase",
+    "timeoutMs": 8000
+  }
+}
