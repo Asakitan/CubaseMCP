@@ -1,0 +1,7 @@
+# Fixed Save command: contract boundary
+
+The installed Cubase 16.0.5 factory script `midiremote_factory_scripts/Public/arturia/keylab_essential_common.js` contains a `page.makeCommandBinding` for category `File`, command `Save`. This confirms an installed MIDI Remote example of a fixed command binding, not a successful MCP save or a general project lifecycle interface.
+
+The installed `midiremote_api_v1.d.ts` declares `MR_CommandBinding.mOnValueChange`, `filterByValue` and `canPerform`. Those members do not provide a named-project path, a dirty-state query, a correlated save-completion/error callback, or a guarantee that the save is noninteractive. `canPerform` alone is not evidence of completed persistence. The separately traced save body has conditional alert-provider and target-file branches (`project-save-preflight.md`, `project-save-target.md`); the active runtime branch and actual outcome have not been observed.
+
+No Save binding was added to the MCP allowlist or invoked in this investigation. A usable implementation still requires a host-authoritative project identity/path, a background-compatible noninteractive submission route, correlated completion/error evidence and independent persistence verification. Current revision 3.6 also has no successful mapping handshake in the latest isolated process.

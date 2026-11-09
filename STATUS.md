@@ -2,7 +2,14 @@
 
 Version: 0.1.0. The complete user goal remains active and is not achieved. The current server has 23 MIDI Remote tools; project creation, saving, event editing and parameterized rendering are not implemented, and current live MIDI operations have not passed.
 
-## Current session 17 evidence
+## Current session 18 evidence
+
+- The isolated launcher now assigns a suspended target to a Windows job that prohibits documented desktop creation/switching, verifies the configured flags and input-desktop samples, and retains a kill-on-last-handle-close job. A synthetic child confirmed job membership and `CreateDesktopW` denial; these checks do not prove every foreground event is absent (`docs/background-desktop-job.md`).
+- After backing up the owned test directory and prior receipt, a user-approved restart launched PID 50568 on the private desktop with job restrictions. Its receipt sampled `Default` as the input desktop before creation, before resume and afterward; a project window appeared, both MIDI ports listed PID 50568, and the script console recorded construction of 3.6. One new no-write 3.6 status request timed out with execution `unknown` (`artifacts/live-smoke/verification-coverage-9ad5a1d9-85c1-4b80-8dcd-f960e1e9689a.json`). The request was not replayed.
+- The startup sampler received its ticket late because the earlier holder-spawn path retained a captured pipe; its first sample began 37.59 seconds after process start, then 345 observed informer samples had an empty project tree. This cannot establish earlier event ordering. The holder-spawn path was replaced with a no-inherited-handle launch; a synthetic long-lived holder and the real existing-instance guard passed, but a fresh Cubase launch using the new holder path has not been run (`docs/midi-startup-timeline.md`).
+- `npm run build` and `npm test` passed **84/84**. Installed factory scripts show a fixed `File`/`Save` binding but no demonstrated noninteractive completion or persistence contract; project create/save/edit and full coverage remain unimplemented (`docs/project-save-command.md`).
+
+## Session 17 evidence
 
 - Revision 3.6 clears selected insert/strip group feedback on valid plug-in-identity callbacks and clears selected-track feedback when either ID changes or identity becomes unavailable. Optional runtime guards are exposed for track controls and navigation. Four focused regressions first reproduced the stale observations and then passed; the TypeScript build and full suite passed **84/84** (`docs/midi-coverage-3.6.md`).
 - The live verifier now restores only after observing the requested target and uses both selected-channel IDs; uncertain writes and unobserved targets do not trigger a subsequent restore. Reports use unique, non-overwriting filenames. These are fixture checks, not a live project write.

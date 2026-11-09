@@ -17,8 +17,8 @@
 | `scripts/Install-Midi.ps1` | Installed loopMIDI/virtualMIDI driver | Explicit installation completed |
 | `native/MidiPortHost.cs` | Hidden PowerShell port process | Real SysEx loopbacks and client-PID query tested |
 | `scripts/Start-MidiPorts.ps1` | Two exact-name virtual ports | Running with explicit stop and correlated one-shot client inspection |
-| `native/CubaseDesktop.cs` | Isolated Windows desktop/process lifetime | Private recovered project opened; no input desktop switch |
-| `scripts/Start-CubaseBackground.ps1` | Explicit existing CPR or copied AI test project | Validated path, runtime receipt, detached holder output; existing-instance guard test passed, no native project-creation claim |
+| `native/CubaseDesktop.cs` | Isolated Windows desktop/process lifetime | Suspended target gets a verified desktop-restricted job; synthetic denial and isolated Cubase start observed |
+| `scripts/Start-CubaseBackground.ps1` | Explicit existing CPR or copied AI test project | Validated path, runtime receipt and no-inherited-handle holder; fresh detached Cubase path remains unverified |
 | `native/CubaseDeviceRefresh.cs` | Fixed isolated device notification diagnostic | Private worker-thread binding; delivery/reconnection unverified |
 | `scripts/Refresh-CubaseDevices.ps1` | Explicit device refresh diagnostic | Structured errors; no arbitrary message or MCP route |
 | `scripts/verify-live.cjs`, `tests/verify-live.test.cjs` | Actual stdio MCP verifier | Uses both track identifiers, observes target before one restore and writes unique reports; current revision not live-verified |
@@ -83,7 +83,10 @@
 | `scripts/project-open-16-snapshot.ps1`, `scripts/project-open-16-inspect.py`, `scripts/project-open-lifetime-16-inspect.py`, `docs/project-open-16.md` | Host-open thread and ownership | Calling-thread comparison and saved thread ID observed; conditional path copies and message fields traced; delivery, full lifetime and completion unresolved |
 | `scripts/project-create-save-16-inspect.py`, `docs/project-create-save-16.md` | Additional save predicate | Local-volume branch narrowed; target, alerts and save completion unresolved |
 | `scripts/midi-activation-16-inspect.py`, `docs/midi-activation-16.md` | Scanner request-path follow-up | Output-collection return and conditional request-object submission traced; transmission and mapping unverified |
-| `docs/midi-coverage-3.6.md` | Selected-channel guards and verifier | Source and installed 3.6 fixture-tested; existing host remains on observed 3.5 construction |
+| `docs/midi-coverage-3.6.md` | Selected-channel guards and verifier | Source and installed 3.6 fixture-tested and constructed; current no-write handshake timed out |
+| `tests/DesktopJobProbe.cs`, `tests/desktop-job-boundary.ps1`, `docs/background-desktop-job.md` | Restricted desktop job diagnostic | Synthetic job/desktop denial and one real isolated Cubase start observed; no continuous foreground proof |
+| `tests/DetachedHolderProbe.ps1`, `tests/DetachedHolderStarter.ps1`, `tests/detached-holder-pipe.ps1` | Detached holder pipe check | Synthetic long-lived holder closes caller pipes; existing-instance guard also passed |
+| `docs/project-save-command.md` | Fixed Save binding contract | Installed example confirmed; noninteractive and completed save unverified |
 
 ## Update Log
 
@@ -107,3 +110,4 @@
 | 2026-11-10 | Verified a synthetic Unicode path-object setter and field split in the isolated host; checked current scanner receiver and traced open/save decision paths. |
 | 2026-11-10 | Observed a bounded project candidate/root match and traced calling-thread dispatch, save and scanner branches; no lifecycle operation or MIDI transmission was performed. |
 | 2026-11-10 | Added selected-channel runtime guards and plug-in feedback invalidation, corrected verifier write/restore sequencing, and installed 3.6; 84 tests passed, live activation unverified. |
+| 2026-11-10 | Added restricted desktop job and detached holder, restarted owned Cubase with 3.6, and recorded a no-write status timeout; no project lifecycle completion claimed. |
