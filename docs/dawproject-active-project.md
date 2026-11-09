@@ -14,7 +14,7 @@ At `2026-11-09T17:24:30.1544335Z`, `scripts/Read-DawprojectRootField.ps1` checke
 
 The value is a tempo-track event object, not an identified active arrangement, project creation result, or evidence that DAWproject import can run. The check is unpinned and cannot guarantee object lifetime or active-project identity. One initial script invocation stopped before the field read because an inherited PowerShell exit-status check treated an unset status as a failure; the check was corrected and the recorded snapshot succeeded.
 
-Session 22 traced the object's secondary getter and setter to a float field and identified an importer data-flow segment converting a source double to that float. The source getter's meaning and units remain unknown, so neither BPM nor a live project value is asserted (`docs/project-tempo-field-22.md`).
+Session 22 traced the object's secondary getter and setter to a float field and identified an importer data-flow segment converting a source double to that float. Session 23 linked the successful parser path to `Transport/Tempo/value`, but unit handling and defaults remain open, so neither BPM nor a live project value is asserted (`docs/project-tempo-field-22.md`, `docs/project-tempo-source-23.md`).
 
 The coordinator independently reran the validated diagnostic at `17:25:04Z`; its unmodified output is `artifacts/ipc/dawproject-root-field-main-3720.json`. The same primary and secondary vtables were observed with stable rereads. This remains a separate point-in-time observation, not a callable project-editing contract.
 

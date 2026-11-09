@@ -76,7 +76,7 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 
 较早的 `artifacts/live-smoke/verification.json` 记录了真实 Cubase AI 16.0.5 的发现、参数、反馈和音量写入恢复；它不证明本轮新增控制项、工程存储或完整功能覆盖。新版 `verify:live` 脚本要求当前控制器，旧记录与本轮实机验收分别记录。详细状态见 [STATUS](STATUS.md)。
 
-**当前状态（第 22 轮）**：两次独立工程打开提交均保持 `unknown`，当前私有桌面的“您想激活工程吗？”提示未操作。只读快照发现两组不同工程路径候选，但尚未证明打开完成或存储成功。3.8 的参数编辑锁已通过夹具测试并部署，现有隔离进程仍记录 3.6 构造，3.8 的活动映射和实机控制尚未验证。创建、存储、编辑工程和完整功能验收仍在进行。详见 [工程根与路径观察](docs/project-root-documents-22.md)、[参数编辑锁](docs/midi-parameter-lock-3.8.md) 与 [后台桌面约束](docs/background-desktop-job.md)。
+**当前状态（第 23 轮）**：两次独立工程打开提交均保持 `unknown`，当前私有桌面的“您想激活工程吗？”提示未操作。静态分析已关联 DAWproject 的 `Transport/Tempo/value` 与宿主候选字段，并发现一个有条件的提示分支。一次隔离实例快照得到部分线程栈，和 `OpenFile` 派发至激活提示消费者的路径一致，但工程打开完成和存储仍未证实。3.8 已通过夹具测试并部署，现有隔离进程仍记录 3.6 构造，3.8 的活动映射和实机控制尚未验证。创建、存储、编辑工程和完整功能验收仍在进行。详见 [工程数据追踪](docs/project-tempo-source-23.md)、[部分线程栈](docs/project-activation-stack-23.md) 与 [工程打开条件](docs/project-open-options-23.md)。
 
 ## 原生项目接口调查
 

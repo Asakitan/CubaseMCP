@@ -2,7 +2,15 @@
 
 Version: 0.1.0. The complete user goal remains active and is not achieved. The current server has 24 MIDI Remote tools; project creation, saving, event editing and parameterized rendering are not implemented, and current live MIDI operations have not passed.
 
-## Current session 22 evidence
+## Current session 23 evidence
+
+- A fixed-build static trace now links the successful DAWproject `Transport/Tempo/value` parser path to the importer and its host float field. Unit handling, runtime behavior and persistence remain unverified (`docs/project-tempo-source-23.md`).
+- A conditional application-open path forwards a byte that can skip the activation-prompt consumer on a particular branch, but no established public caller, full no-dialog contract or completed open has been shown (`docs/project-open-options-23.md`).
+- The revised synthetic-only PSS diagnostic walked three named frames in order, with bounded reads and one initial echo. A separate run in a synthetic Job with UI 64 / limit 8192 observed both child and clone in that Job; cleanup returned success and a single later inventory omitted the clone. Job closure may affect that observation; neither run proves full resource reclamation or a real Cubase call stack (`docs/project-activation-clone-22.md`).
+- One fixed, user-approved PSS capture of PID 24036 returned status 0 in 48.587 ms and produced 30 accepted module-relative frames before a read failure. Eight frames have independently checked static call predecessors consistent with the posted `OpenFile` dispatch reaching the activation-prompt consumer. This is a partial walk, not proof of a choice, completed open or persistence. Marker/snapshot and handle cleanup were reported; the original wrapper lost the worker exit code, so it remains unknown. The wrapper was corrected and tested on a separate synthetic child, with no second target capture (`docs/project-activation-stack-23.md`, `docs/project-activation-clone-23-target.md`).
+- Current project create/save/edit/reopen and a live 3.8 mapping remain open. The two earlier host-open outcomes remain `unknown` and were not replayed.
+
+## Session 22 evidence
 
 - Revision `2026-11-10-coverage-3.8` adds `cubase_parameter_edit_lock_set`: a discovered object/tag, matching current Boolean lock state and current session are required before one DirectAccess setter submission. The prior 3.7 files were backed up and 3.8 installed; the TypeScript build and full suite passed **91/91**. Existing PID 24036 still logged only 3.6 construction after deployment, so 3.8 activation and the new operation remain unverified live (`docs/midi-parameter-lock-3.8.md`).
 - Static inspection located the activation prompt key's consumer and its conditional host-open branch (`docs/project-activation-static-22.md`). A separate post-prompt read observed the application predicate fields and a two-item `CmLinkedList`-shaped project container (`docs/project-activation-predicates-22.md`, `docs/project-list-22.md`); these snapshots do not prove gate-time values.

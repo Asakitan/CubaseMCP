@@ -1,7 +1,11 @@
+param(
+    [ValidatePattern('^[0-9a-f]{32}$')]
+    [string]$RunId = [guid]::NewGuid().ToString('N')
+)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $source = Join-Path $root 'native\ActivationClone22.cpp'
-$output = Join-Path $root 'artifacts\activation-clone-22'
+$output = Join-Path $root ('artifacts\activation-clone-22\run-' + $RunId)
 $vcvars = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat'
 if (-not (Test-Path -LiteralPath $vcvars -PathType Leaf)) { throw 'MSVC vcvars64.bat is missing.' }
 New-Item -ItemType Directory -Force -Path $output | Out-Null

@@ -24,3 +24,4 @@
 | [20](session-20.md) | 2026-11-10 | Observe a same-directory startup and one separate open submission that raised an activation prompt. |
 | [21](session-21.md) | 2026-11-10 | Add guarded instrument/strip parameter banks and inspect the isolated activation thread context. |
 | [22](session-22.md) | 2026-11-10 | Add guarded parameter edit locks and trace two post-prompt project root/path candidates. |
+| [23](session-23.md) | 2026-11-10 | Trace tempo-value flow and capture a partial fixed-target OpenFile/prompt stack. |

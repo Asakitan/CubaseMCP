@@ -96,13 +96,38 @@ bool load_modules(HANDLE process, const wchar_t* exe) {
     }
     return true;
 }
-int parent() {
-    int rc = 1; HANDLE ready = nullptr, stop = nullptr, cloneMonitor = nullptr;
+int parent(bool useJob) {
+    int rc = 1; HANDLE ready = nullptr, stop = nullptr, cloneMonitor = nullptr, job = nullptr;
     PROCESS_INFORMATION child{}; HPSS snap = nullptr; HPSSWALK marker = nullptr;
-    bool symbols = false, childStarted = false;
+    bool symbols = false, childStarted = false, childSuspended = false;
     wchar_t exe[MAX_PATH]{};
     do {
+        std::printf("mode=%s\n", useJob ? "synthetic-job-parent" : "synthetic-parent");
         if (!GetModuleFileNameW(nullptr, exe, MAX_PATH)) { std::puts("error=GetModuleFileName"); break; }
+        if (useJob) {
+            job = CreateJobObjectW(nullptr, nullptr);
+            if (!job) { std::printf("job create=0 code=%lu\n", GetLastError()); break; }
+            std::puts("job create=1");
+            JOBOBJECT_BASIC_UI_RESTRICTIONS ui{}; ui.UIRestrictionsClass = 0x40;
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{}; limits.BasicLimitInformation.LimitFlags = 0x2000;
+            BOOL uiSet = SetInformationJobObject(job, JobObjectBasicUIRestrictions, &ui, sizeof(ui));
+            DWORD uiError = uiSet ? ERROR_SUCCESS : GetLastError();
+            std::printf("job ui_set=%d code=%lu\n", uiSet != FALSE, uiError);
+            if (!uiSet) break;
+            BOOL limitSet = SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits));
+            DWORD limitError = limitSet ? ERROR_SUCCESS : GetLastError();
+            std::printf("job limit_set=%d code=%lu\n", limitSet != FALSE, limitError);
+            if (!limitSet) break;
+            JOBOBJECT_BASIC_UI_RESTRICTIONS actualUi{}; JOBOBJECT_EXTENDED_LIMIT_INFORMATION actualLimits{};
+            if (!QueryInformationJobObject(job, JobObjectBasicUIRestrictions, &actualUi, sizeof(actualUi), nullptr) ||
+                !QueryInformationJobObject(job, JobObjectExtendedLimitInformation, &actualLimits, sizeof(actualLimits), nullptr)) {
+                std::printf("error=job_query code=%lu\n", GetLastError()); break;
+            }
+            std::printf("job ui_flags=%lu limit_flags=%lu\n", actualUi.UIRestrictionsClass, actualLimits.BasicLimitInformation.LimitFlags);
+            if (actualUi.UIRestrictionsClass != 0x40 || actualLimits.BasicLimitInformation.LimitFlags != 0x2000) {
+                std::puts("error=job_policy_mismatch"); break;
+            }
+        }
         SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
         ready = CreateEventW(&sa, TRUE, FALSE, nullptr); stop = CreateEventW(&sa, TRUE, FALSE, nullptr);
         if (!ready || !stop) { std::puts("error=CreateEvent"); break; }
@@ -121,26 +146,56 @@ int parent() {
             inherited, sizeof(inherited), nullptr, nullptr) != FALSE;
         STARTUPINFOEXW si{}; si.StartupInfo.cb = sizeof(si); si.lpAttributeList = attributes;
         bool created = listed && CreateProcessW(exe, command, nullptr, nullptr, TRUE,
-            CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT, nullptr, nullptr, &si.StartupInfo, &child) != FALSE;
+            CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT | (useJob ? CREATE_SUSPENDED : 0), nullptr, nullptr, &si.StartupInfo, &child) != FALSE;
         DWORD createError = created ? ERROR_SUCCESS : GetLastError();
         if (initialized) DeleteProcThreadAttributeList(attributes);
         bool freed = HeapFree(GetProcessHeap(), 0, attributes) != FALSE;
         if (!created) { std::printf("error=CreateProcess_or_attribute code=%lu\n", createError); break; }
-        childStarted = true;
+        childStarted = true; childSuspended = useJob;
         if (!freed) { std::puts("error=attribute_free"); break; }
+        if (useJob) {
+            BOOL assigned = AssignProcessToJobObject(job, child.hProcess);
+            DWORD error = assigned ? ERROR_SUCCESS : GetLastError();
+            std::printf("job assign=%d code=%lu\n", assigned != FALSE, error);
+            if (!assigned) break;
+            BOOL member = FALSE;
+            BOOL checked = IsProcessInJob(child.hProcess, job, &member);
+            std::printf("job membership_query=%d member=%d\n", checked != FALSE, member != FALSE);
+            if (!checked || !member) break;
+            DWORD previous = ResumeThread(child.hThread);
+            std::printf("job child_resume=%lu\n", previous);
+            if (previous == static_cast<DWORD>(-1)) break;
+            childSuspended = previous > 1;
+            if (previous != 1) { std::puts("error=unexpected_suspend_count"); break; }
+        }
         if (WaitForSingleObject(ready, kTimeoutMs) != WAIT_OBJECT_0) { std::puts("error=child_ready_timeout"); break; }
         DWORD status = PssCaptureSnapshot(child.hProcess, static_cast<PSS_CAPTURE_FLAGS>(
             PSS_CAPTURE_VA_CLONE | PSS_CAPTURE_THREADS | PSS_CAPTURE_THREAD_CONTEXT),
             CONTEXT_CONTROL | CONTEXT_INTEGER, &snap);
+        std::printf("capture status=%lu\n", status);
         if (status != ERROR_SUCCESS) { std::printf("error=PssCaptureSnapshot code=%lu\n", status); break; }
         PSS_VA_CLONE_INFORMATION clone{};
         status = PssQuerySnapshot(snap, PSS_QUERY_VA_CLONE_INFORMATION, &clone, sizeof(clone));
         if (status != ERROR_SUCCESS || !clone.VaCloneHandle) { std::printf("error=PssQuerySnapshot code=%lu\n", status); break; }
         gClone = clone.VaCloneHandle;
+        if (useJob) {
+            BOOL member = FALSE;
+            BOOL checked = IsProcessInJob(gClone, job, &member);
+            DWORD error = checked ? ERROR_SUCCESS : GetLastError();
+            std::printf("job clone_membership_query=%d member=%d code=%lu\n", checked != FALSE, member != FALSE, error);
+            if (!checked) break;
+        }
         DWORD cloneId = GetProcessId(gClone);
         if (!cloneId || cloneId == child.dwProcessId) { std::puts("error=clone_identity"); break; }
         cloneMonitor = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, cloneId);
         if (!cloneMonitor) { std::printf("error=clone_monitor code=%lu\n", GetLastError()); break; }
+        FILETIME monitorCreated{}, monitorExited{}, monitorKernel{}, monitorUser{};
+        if (GetProcessId(cloneMonitor) != cloneId ||
+            !GetProcessTimes(cloneMonitor, &monitorCreated, &monitorExited, &monitorKernel, &monitorUser)) {
+            std::puts("error=clone_monitor_identity"); break;
+        }
+        unsigned long long cloneFiletime = (static_cast<unsigned long long>(monitorCreated.dwHighDateTime) << 32) | monitorCreated.dwLowDateTime;
+        std::printf("clone_identity pid=%lu creation_filetime=%llu\n", cloneId, cloneFiletime);
         status = PssWalkMarkerCreate(nullptr, &marker);
         if (status != ERROR_SUCCESS) { std::printf("error=PssWalkMarkerCreate code=%lu\n", status); break; }
         CONTEXT context{}; bool found = false;
@@ -180,12 +235,21 @@ int parent() {
         STACKFRAME64 frame{}; frame.AddrPC.Offset = context.Rip; frame.AddrPC.Mode = AddrModeFlat;
         frame.AddrStack.Offset = context.Rsp; frame.AddrStack.Mode = AddrModeFlat;
         frame.AddrFrame.Offset = context.Rbp; frame.AddrFrame.Mode = AddrModeFlat;
-        DWORD64 previousSp = context.Rsp; unsigned sequence = 0; bool progress = true, orderError = false;
+        DWORD64 previousSp = context.Rsp, previousPc = context.Rip;
+        unsigned sequence = 0, accepted = 0; bool progress = true, orderError = false, echo = false;
         for (unsigned i = 0; i < kMaxFrames; ++i) {
             if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, gClone, child.hThread, &frame, &context,
                 bounded_read, SymFunctionTableAccess64, SymGetModuleBase64, nullptr)) break;
-            if (!frame.AddrPC.Offset || frame.AddrStack.Offset <= previousSp) { progress = false; break; }
-            previousSp = frame.AddrStack.Offset;
+            if (i == 0 && frame.AddrPC.Offset && previousSp && frame.AddrPC.Offset == previousPc &&
+                frame.AddrStack.Offset == previousSp) { echo = true; continue; }
+            if (!frame.AddrPC.Offset || frame.AddrStack.Offset <= previousSp) {
+                const char* spRelation = frame.AddrStack.Offset == previousSp ? "equal" :
+                    (frame.AddrStack.Offset < previousSp ? "lower" : "higher");
+                std::printf("walk_stop index=%u pc_zero=%d pc_same=%d sp_relation=%s\n",
+                    i, frame.AddrPC.Offset == 0, frame.AddrPC.Offset == previousPc, spRelation);
+                progress = false; break;
+            }
+            previousSp = frame.AddrStack.Offset; previousPc = frame.AddrPC.Offset; ++accepted;
             alignas(SYMBOL_INFO) char storage[sizeof(SYMBOL_INFO) + MAX_SYM_NAME]{};
             auto* symbol = reinterpret_cast<SYMBOL_INFO*>(storage); symbol->SizeOfStruct = sizeof(SYMBOL_INFO); symbol->MaxNameLen = MAX_SYM_NAME;
             DWORD64 displacement = 0;
@@ -196,7 +260,8 @@ int parent() {
             }
             if (sequence == 3 || orderError) break;
         }
-        std::printf("frames ordered=%u rsp_progress=%d read_failure=%d order_error=%d\n", sequence, progress, gReadFailed, orderError);
+        std::printf("frames ordered=%u rsp_progress=%d read_failure=%d order_error=%d echo=%d accepted=%u\n",
+            sequence, progress, gReadFailed, orderError, echo, accepted);
         if (sequence == 3 && progress && !gReadFailed && !orderError) rc = 0;
     } while (false);
     if (symbols && !SymCleanup(gClone)) { std::puts("error=SymCleanup"); rc = 1; }
@@ -206,8 +271,18 @@ int parent() {
     if (cloneMonitor) {
         DWORD wait = WaitForSingleObject(cloneMonitor, 2000);
         std::printf("cleanup clone_wait=%lu\n", wait);
-        BOOL closed = CloseHandle(cloneMonitor);
-        if (wait != WAIT_OBJECT_0 || !closed) rc = 1;
+        if (wait == WAIT_FAILED) rc = 1;
+    }
+    if (childSuspended) {
+        DWORD previous = ResumeThread(child.hThread);
+        std::printf("cleanup suspended_child_resume=%lu\n", previous);
+        if (previous != 1) {
+            rc = 1;
+            if (previous == static_cast<DWORD>(-1) || previous > 1) {
+                BOOL stopped = TerminateProcess(child.hProcess, 99);
+                std::printf("cleanup suspended_owned_child_terminate=%d\n", stopped != FALSE);
+            }
+        }
     }
     if (stop && !SetEvent(stop)) { std::puts("error=release_child"); rc = 1; }
     if (childStarted) {
@@ -219,6 +294,15 @@ int parent() {
         if (!CloseHandle(child.hThread)) rc = 1;
         if (!CloseHandle(child.hProcess)) rc = 1;
     }
+    if (cloneMonitor) {
+        DWORD wait = WaitForSingleObject(cloneMonitor, 2000);
+        std::printf("cleanup clone_wait_after_child=%lu\n", wait);
+        if (wait == WAIT_FAILED) rc = 1;
+        BOOL closed = CloseHandle(cloneMonitor);
+        std::printf("cleanup clone_monitor_close=%d\n", closed != FALSE);
+        if (!closed) rc = 1;
+    }
+    if (job) { BOOL closed = CloseHandle(job); std::printf("cleanup job_close=%d\n", closed != FALSE); if (!closed) rc = 1; }
     if (ready && !CloseHandle(ready)) rc = 1;
     if (stop && !CloseHandle(stop)) rc = 1;
     std::printf("cleanup result=%d\n", rc);
@@ -226,12 +310,13 @@ int parent() {
 }
 }
 int wmain(int argc, wchar_t** argv) {
-    if (argc == 2 && std::wcscmp(argv[1], L"synthetic-parent") == 0) return parent();
+    if (argc == 2 && std::wcscmp(argv[1], L"synthetic-parent") == 0) return parent(false);
+    if (argc == 2 && std::wcscmp(argv[1], L"synthetic-job-parent") == 0) return parent(true);
     if (argc == 4 && std::wcscmp(argv[1], L"synthetic-child") == 0) {
         wchar_t* end1 = nullptr; wchar_t* end2 = nullptr;
         unsigned long long a = std::wcstoull(argv[2], &end1, 10), b = std::wcstoull(argv[3], &end2, 10);
         if (!a || !b || !end1 || *end1 || !end2 || *end2) return 2;
         return static_cast<int>(synthetic_outer(reinterpret_cast<HANDLE>(static_cast<uintptr_t>(a)), reinterpret_cast<HANDLE>(static_cast<uintptr_t>(b))));
     }
-    std::puts("usage: synthetic-parent"); return 2;
+    std::puts("usage: synthetic-parent | synthetic-job-parent"); return 2;
 }
