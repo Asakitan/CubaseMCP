@@ -9,6 +9,7 @@
 - Preserve user configuration and existing installed scripts. Installation must never start Cubase.
 - MCP SDK documentation: https://github.com/modelcontextprotocol/typescript-sdk and https://ts.sdk.modelcontextprotocol.io/v2/
 - Build with `npm run build`; verify with `npm test`. Live verification is explicit: `npm run doctor -- --live`.
+- Run only checks necessary for the changed behavior or required by the project; do not repeat equivalent tests or rerun unchanged suites.
 - Update STATUS.md, module inventory, session log and affected module documentation within the same task.
 
 ## Setup Checklist
@@ -16,8 +17,9 @@
 - [x] Requirements and strict background constraints recorded.
 - [x] Project scaffold and dependencies installed.
 - [x] No editor extension installation required.
-- [x] Expanded controller integration and build complete (93 tests); coverage-3.8 is installed and its current isolated mapping has activated.
+- [x] Expanded controller integration and build complete (109 tests); coverage-3.8 is installed and previously activated in the isolated host.
 - [x] Native MIDI prerequisites and earlier real Cubase AI16.0.5 core-chain verification recorded.
-- [x] Observe current device/mapping activation and live MCP read/discovery without foreground input; one distinct DirectAccess parameter write and restore were observed.
+- [x] Observe a device/mapping activation and live MCP read/discovery without foreground input; one distinct DirectAccess parameter write and restore were observed.
+- [ ] Re-establish the current mapping after temporary port changes and a device-deactivation observation, without replaying the timed-out status request.
 - [ ] Resolve the separate selected-track and bank-channel volume binding writes whose requested values were not observed; validate additional controls individually.
 - [ ] Implement and verify project creation, saving, event editing, rendering and remaining Cubase feature coverage.

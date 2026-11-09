@@ -27,3 +27,4 @@
 | [23](session-23.md) | 2026-11-10 | Trace tempo-value flow and capture a partial fixed-target OpenFile/prompt stack. |
 | [24](session-24.md) | 2026-11-10 | Observe empty startup, first-project state and mapping activation; verify live reads and one DirectAccess write/restore while a separate control write remains unverified. |
 | [25](session-25.md) | 2026-11-10 | Inspect CPR framing and a project-path candidate, trace New/Hub and save paths, and test a distinct bank-volume binding. |
+| [26](session-26.md) | 2026-11-10 | Prepare isolated A/B and first-open scaffolds, record device deactivation and a notification without observed recovery, and trace Hub callbacks. |
