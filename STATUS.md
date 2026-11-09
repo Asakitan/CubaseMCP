@@ -1,43 +1,33 @@
 # Cubase AI 16 MCP
 
-Version: 0.1.0. State: coverage-2 controller built and installed; isolated Cubase startup is incomplete and no current MIDI handshake is established. The complete user goal is not achieved.
+Version: 0.1.0. The complete user goal remains active and is not achieved. The current server has 23 MIDI Remote tools; project creation, saving, event editing and parameterized rendering are not implemented, and current live MIDI operations have not passed.
 
-## Delivered
+## Current session 08 evidence
 
-- 23 MCP tools over one native MIDI Remote SysEx connection; no foreground automation, alternate execution backend, automatic retry or replay.
-- DirectAccess object/parameter discovery and writes, plugin slot assignment, transport, track identity/navigation, EQ/filter/sends, instrument/automation/quick controls and meters.
-- Added 20 selected-channel strip bindings plus Control Room root/main/indexed bindings. Host maxima and availability govern admission; Control Room indexes share a 16-channel budget. See `docs/midi-coverage-audit.md` for known omissions.
-- Every session-based host operation now requires the current bridge revision, Cubase 16, an active mapping and the current session. Old controllers remain accessible only through status/capability/reset diagnostics. The doctor reports operational readiness separately from a successful handshake.
-- Expected revision: `2026-11-10-coverage-2`. The controller under `C:\Users\99325\Documents\Steinberg\Cubase\MIDI Remote\Driver Scripts\Local\CubaseAI\MCP` was replaced and readback-verified. Three companion files were unchanged. The prior installed controller is retained at `artifacts/runtime/controller-before-coverage-2-20261110.js`.
+- The user approved related operations, including restarting the isolated test instance and loading a fixed diagnostic DLL in that instance. No foreground switch, keyboard/mouse input, alternate runtime backend or licensing-state modification was performed in this session.
+- A scoring-engine crash reported `ERROR_ACCESS_DENIED` while opening a Boost interprocess cache. An administrator-owned 12-byte candidate was archived with its ACL; after a fresh launch the cache was recreated for the current user and the recovered score project opened on the private desktop. The observed recovery supports the diagnosis; the original dump did not preserve the complete failing path. See `docs/scoring-startup-failure.md`.
+- Latest isolated Cubase PID 3720, desktop holder PID 6156, MIDI port host PID 62944. `artifacts/runtime/cubase-launch.json` is the current launch receipt, whose before/after foreground handles matched. The current file is the separate experimental `MCP Device Test 20261110.cpr`, derived from a preserved automatic-backup copy with one bounded MIDI Remote instance block changed; opening it is not proof of MCP project creation or saving.
+- Both virtual MIDI endpoints looped back successfully. A controlled hotplug of prior PID 17596 left the replacement endpoints without that client despite a fixed device notification. Subsequent PID 45628 used both ports, but its bounded model snapshot found the target driver's instance vector empty. After deploying revision 3.3 and restarting the isolated host, PID 3720 is listed on both endpoints and its script console records `controller constructed 2026-11-10-coverage-3.3`. No device or mapping activation was observed; the real status request timed out before any write. Evidence: `artifacts/ipc/midi-clients-coverage-3.3-3720.json`, `midi-script-after-request-3.3-3720.json`, and `artifacts/live-smoke/verification-coverage-3.3-3720.json`. See `docs/midi-script-state.md` and `docs/midi-device-state.md`.
+- The previously installed entry script failed in Cubase with `ReferenceError: identifier 'module' undefined (line 7)`. Its unused top-level CommonJS export was removed. A regression first reproduced that failure in a top-level script context and then passed. The fixed entry and revision 3.3 construction are observed in PID 3720; mapping activation and live operations remain unverified.
+- The port host now supports an explicit one-shot client-PID snapshot. A real temporary-port test verified that it distinguished the process holding one MIDI input from the unused second port. This is diagnostic metadata, not a second execution backend.
+- A fixed approved in-process probe in earlier PID 66528 acquired the real project host and submitted one read-only `GetMusicalTrack` request. Its correlated callback was `host_error_callback`, not a project response. The host service pointer was null and `projectplugin.dll` absent from that process. A bounded feature-record snapshot found the project CID record mask 15 against host mask 16, so the observed mask test did not match; this does not by itself establish why the component was not loaded. Evidence: `artifacts/native-probe/result-66528.json` and `feature-admission-66528.json`.
+- Separate static tracing plus bounded reads in PID 45628 found a candidate `PArrangement` and `FNPath` whose observed directory and name fields match the experimental file. The chain was not locked and is not proof of the active document, a completed save, or an invocable lifecycle ABI. Evidence: `artifacts/ipc/document-candidate-45628.json`, `document-path-45628.json`, and `document-full-path-45628.json`.
+- Static detector tracing identified a scheduling path, a driver-instance check and the script predicate before detection-unit traversal. A bounded current-PID snapshot recorded two transient root fields, but their values do not establish whether detection ran or why no instance activated. See `docs/midi-detection-ports.md` and `artifacts/ipc/midi-detection-queue-3720.json`.
 
-## Current session 07 evidence
+## Code and verification
 
-- The user approved related operations, including elevation and restarting the owned isolated test instance. Old test files and the newest automatic backup were preserved.
-- The owned MIDI host was recreated and is ready at PID 55396. Port availability did not restore the old Cubase mapping; status calls timed out.
-- Current Cubase PID 58536 and holder PID 48104 run on the private desktop, with an explicit recovered test project path. Startup last showed Safe Start and license-check windows, not an open project. No user-interface action was used to claim a project outcome.
-- The launcher accepts an explicit existing CPR path, records it and requests a hidden console on the private desktop. This is initialization work, not a project-creation MCP implementation.
-- A standard independent service call with empty input returned 1/status 4, validating that recovered branch. A read-only snapshot of earlier PID 42240 also proved that the project host was registered in the native interface container. Both observations are narrower than a successful project operation.
-- See `docs/startup-recovery-investigation.md`, `docs/service-request-contract.md` and `docs/host-registry-access.md`. The latest startup state replaces the earlier live-handshake snapshot below.
-
-## Session 06 evidence (historical)
-
-- `node node_modules/typescript/bin/tsc -p tsconfig.json` passed; `node --test tests/*.test.cjs` passed **57/57**, with no skipped tests. The new all-operation regression first reproduced a legacy read bypass before the fix.
-- Before session 07, real Cubase AI 16.0.5 ran on `winsta0/CubaseAI_MCP`, PID 11368. Its MIDI handshake returned no bridge revision and a real legacy read was rejected as `BRIDGE_UPGRADE_REQUIRED`, `not_started`; evidence: `artifacts/live-smoke/guard-live-20261110.json`. That process has since been stopped with approval.
-- The earlier `artifacts/live-smoke/verification.json` proves discovery, Piano parameters, live control feedback and a restored volume write on the old controller. It does not validate coverage-2 controls.
-- An independent native probe successfully obtained the observed project service interface through standard `IPluginFactory.createInstance` with the recovered CID/IID, and released it. Public class count remained zero; service vtable matched the static trace. Evidence: `artifacts/ipc/service-probe-20261110.json`. No service request or live project query was made.
-- Native static analysis recovered part of the project request/response path and an unexecuted `GetMusicalTrack` request candidate. Host context, live delivery, callback ownership and a complete editing contract remain unresolved. See `docs/host-project-api.md` and `docs/native-factory-recovery.md`.
-- Standard process read/query access returned Windows error 5. The user approved loading R1 only for read-only Cubase diagnosis; R1 returned `LOAD_FAILED` because its service lacks `SeLoadDriverPrivilege`, with `loaded: false`. No R1 process-memory reads or writes occurred.
-
-## Runtime and paths
-
-- Executable: `C:\Program Files\Steinberg\Cubase 16\Cubase 16.exe` (16.0.5). `D:\CubaseAI` contains installer downloads, not the running application.
-- Virtual ports: `CubaseAI MCP To Cubase` / `CubaseAI MCP From Cubase`; no-window port host state: `artifacts/runtime/midi-ports.json`.
-- Current requested test project: `artifacts/live-smoke/MCP Recovered 20261110.cpr`, copied from the preserved automatic backup. The original `MCP Smoke.cpr` is unchanged. Neither copy proves native MCP project creation or saving.
-- No preference changes, foreground window operations, Cubase restart, or new runtime backend were performed in session 06.
+- TypeScript build passed; `node --test tests/*.test.cjs` passed **70/70**, with no skipped tests. `tests/midi-port-clients.ps1` passed against the installed virtualMIDI driver. Fixture results are not live Cubase feature certification.
+- Source/server and installed controller revision `2026-11-10-coverage-3.3` adds eight identity-guarded mixer bank channel slots to revision 3.2's fixed insert viewers and guarded actions, strip parameter banks, Control Room selectors, compact status, independent paging and lifecycle messages. Cubase logged construction, but its mapping and new controls have not been live-verified. A large-host fixture reproduced the old oversized status failure before pagination. Long identity strings remain exact. The replaced controller and test CPR were preserved under `artifacts/runtime/before-coverage-3.3-20261110-040212`.
+- All session operations enforce the current revision, Cubase major version and session. Submitted writes and timeouts are not reported as completed mutations. The live verifier now queries an individual volume control rather than assuming its position in a list page.
+- Native probes and static analysis are diagnostics only. They do not expose arbitrary RPC, modify host instructions or provide a second runtime execution route. `docs/project-lifecycle-contract.md` records candidate open-project paths and unresolved threading/dialog contracts.
 
 ## Required work
 
-1. Establish the native project host/context and request/result contract, then obtain a read-only response from the real isolated test project.
-2. Implement and verify project creation and saving, event editing and parameterized rendering through that verified native contract. These are not implemented in the current MCP.
-3. Resolve isolated startup and activate coverage-2 without a foreground/UI execution path, then run focused live verification. No current controller handshake is established.
-4. Complete remaining declaration-backed MIDI families and track the edition-dependent gaps. Neither the 23-tool count nor fixture coverage proves all Cubase functionality.
+1. Establish and activate the MIDI Remote device/mapping through a repeatable background-native path; verify the current revision with an actual handshake and focused real-host control read/write/restore.
+2. Recover and verify a native project creation/open/save contract, then implement real MCP lifecycle operations and disk-persistence checks without dialogs or foreground input.
+3. Implement and verify MIDI/audio event editing, track lifecycle, parameterized rendering and all remaining Cubase feature families requested by the user. Preserve actual edition/host availability rather than inventing success.
+4. Complete the remaining declaration-backed mixer and insert-viewer writes recorded in `docs/midi-coverage-audit.md`; neither its fixture coverage nor the 23-tool count proves complete Cubase coverage.
+
+## Historical evidence
+
+Earlier `artifacts/live-smoke/verification.json` recorded discovery, Piano parameters, feedback and a restored volume write on a legacy controller in a different, stopped process. It does not verify the current controller or project lifecycle. Historical investigation and startup details remain indexed in `docs/session-log/README.md`.

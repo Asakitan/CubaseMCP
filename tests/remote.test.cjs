@@ -9,6 +9,34 @@ const commands = require('../remote/commands.js');
 const protocol = require('../remote/protocol.js');
 const { createController } = require('../remote/controller.js');
 
+test('large host maxima and error messages preserve compact handshake and bounded discovery', () => {
+    const harness = fixture((api, state, { host, page }) => {
+        const channel = host.mTrackSelection.mMixerChannel;
+        channel.mSends = { getSize: () => 32, getByIndex: () => ({ mOn: {}, mPrePost: {}, mLevel: {} }) };
+        channel.mCueSends = { mBypass: {}, getSize: () => 32,
+            getByIndex: () => ({ mOn: {}, mPrePost: {}, mLevel: {}, mPan: {} }) };
+        page.makeValueBinding = () => { throw new Error('unavailable-' + 'x'.repeat(5000)); };
+    });
+    assert.equal(harness.status.ok, true, JSON.stringify(harness.status));
+    assert.equal(harness.status.data.bridgeRevision, '2026-11-10-coverage-3.3');
+    let offset = 0;
+    const keys = [];
+    do {
+        const reply = harness.call('controls.list', { offset, limit: 16 });
+        assert.equal(reply.ok, true, JSON.stringify(reply));
+        keys.push(...reply.data.controls.map(control => control.key));
+        offset = reply.data.nextOffset;
+    } while (offset !== null);
+    assert.equal(new Set(keys).size, keys.length);
+    assert.ok(keys.includes('track.send.31.level'));
+    assert.ok(keys.includes('track.cueSend.31.pan'));
+    const allGroups = listAll(harness).groups;
+    assert.equal(allGroups['track.cueSend'].count, 32);
+    const first = harness.call('controls.list', { limit: 1 }).data.controls[0];
+    assert.ok(first.error.message.length <= 129);
+    expectError(harness.call('controls.list', { limit: 17 }), 'INVALID_ARGUMENT');
+});
+
 test('strip effect controls are bounded to declared slots and preserve track guards', () => {
     const harness = fixture();
     for (const slot of ['gate', 'compressor', 'limiter', 'saturator', 'tools']) {
@@ -32,15 +60,95 @@ test('missing strip branches report unavailable without affecting other controls
     assert.equal(harness.call('controls.get', { key: 'track.volume' }).data.control.available, true);
 });
 
+test('strip parameter pages bind eight values and invalidate plugin identity on track change', () => {
+    let slot;
+    const harness = fixture((api, state, { host }) => {
+        slot = host.mTrackSelection.mMixerChannel.mInsertAndStripEffects.mStripEffects.mGate;
+        slot.mParameterBankZone = { makeParameterValue: () => ({}), mAction: { mPrevBank: {}, mNextBank: {}, mResetBank: {} } };
+    });
+    for (let index = 0; index < 8; index++)
+        assert.equal(harness.call('controls.get', { key: `track.strip.gate.parameter.${index}` }).data.control.available, true);
+    expectError(harness.call('controls.set', { key: 'track.strip.gate.bank.next', value: 0.5 }), 'INVALID_VALUE');
+    assert.equal(harness.call('controls.set', { key: 'track.strip.gate.bank.next', value: 1,
+        expectedTrackUniqueId: 'track-uid-2' }).data.execution, 'submitted');
+    slot.mOnChangePluginIdentity(harness.device, harness.currentMapping(), 'Gate', 'Vendor', '1', '3');
+    assert.equal(listAll(harness).groups['track.strip.gate'].pluginIdentity.name, 'Gate');
+    harness.state.selectedTrackId = 'track-new';
+    assert.equal(listAll(harness).groups['track.strip.gate'].pluginIdentity, null);
+});
+
+test('long track identifiers remain exact in paged groups and error details', () => {
+    const uniqueId = 'track-' + 'x'.repeat(300);
+    let slot;
+    const harness = fixture((api, state, { host }) => {
+        state.selectedTrackId = uniqueId;
+        slot = host.mTrackSelection.mMixerChannel.mInsertAndStripEffects.mStripEffects.mGate;
+    });
+    slot.mOnChangePluginIdentity(harness.device, harness.currentMapping(), 'Gate', 'Vendor', '1', '3');
+    const groups = listAll(harness).groups;
+    assert.equal(groups['track.identity'].uniqueId, uniqueId);
+    assert.equal(groups['track.strip.gate'].pluginIdentity.trackUniqueId, uniqueId);
+    const mismatch = harness.call('controls.set', { key: 'track.strip.gate.on', value: 1, expectedTrackUniqueId: 'other' });
+    expectError(mismatch, 'TRACK_CHANGED');
+    assert.equal(mismatch.error.details.currentUniqueId, uniqueId);
+});
+
+test('insert viewers use fixed filters, read-only values and track-guarded navigation', () => {
+    const viewers = {}, filters = [];
+    const harness = fixture((api, state, { host }) => {
+        api.mDefaults.getNumberOfInsertEffectSlots = () => 2;
+        host.mTrackSelection.mMixerChannel.mInsertAndStripEffects.makeInsertEffectViewer = name => {
+            const viewer = { mOn: {}, mBypass: {}, mAutomationRead: {}, mAutomationWrite: {},
+                mAction: { mPrev: {}, mNext: {}, mReset: {} },
+                mParameterBankZone: { makeParameterValue: () => ({}), mAction: { mPrevBank: {}, mNextBank: {}, mResetBank: {} } },
+                includeEmptySlotsOnly() { filters.push([name, 'empty']); return viewer; },
+                excludeEmptySlots() { filters.push([name, 'occupied']); return viewer; },
+                accessSlotAtIndex(index) { filters.push([name, 'slot', index]); return viewer; } };
+            viewers[name] = viewer;
+            return viewer;
+        };
+    });
+    assert.deepEqual(filters, [['CubaseAI MCP empty', 'empty'], ['CubaseAI MCP occupied', 'occupied'],
+        ['CubaseAI MCP slot.0', 'slot', 0], ['CubaseAI MCP slot.1', 'slot', 1]]);
+    for (const group of ['all', 'empty', 'occupied', 'slot.0', 'slot.1']) {
+        const key = `track.insert.${group}.parameter.0`;
+        assert.equal(harness.call('controls.get', { key }).data.control.readOnly, true);
+        expectError(harness.call('controls.set', { key, value: 0.5 }), 'READ_ONLY');
+        expectError(harness.call('controls.get', { key: `track.insert.${group}.edit` }), 'INVALID_CONTROL');
+    }
+    expectError(harness.call('controls.set', { key: 'track.insert.slot.0.bank.next', value: 1 }), 'CONFIRMATION_REQUIRED');
+    expectError(harness.call('controls.set', { key: 'track.insert.slot.0.bank.next', value: 1, expectedTrackUniqueId: 'wrong' }), 'TRACK_CHANGED');
+    assert.equal(harness.call('controls.set', { key: 'track.insert.slot.0.bank.next', value: 1,
+        expectedTrackUniqueId: 'track-uid-2' }).data.execution, 'submitted');
+    viewers['CubaseAI MCP slot.0'].mOnChangePluginIdentity(harness.device, harness.currentMapping(), 'Plugin', 'Vendor', '1', '3');
+    assert.equal(listAll(harness).groups['track.insert.slot.0'].pluginIdentity.trackUniqueId, 'track-uid-2');
+    harness.state.selectedTrackId = 'new-track';
+    assert.equal(listAll(harness).groups['track.insert.slot.0'].pluginIdentity, null);
+    expectError(harness.call('controls.get', { key: 'track.insert.slot.2.on' }), 'INVALID_CONTROL');
+});
+
+test('insert viewer rejects unavailable filters and excessive host slot maxima', () => {
+    const harness = fixture((api, state, { host }) => {
+        api.mDefaults.getNumberOfInsertEffectSlots = () => 17;
+        host.mTrackSelection.mMixerChannel.mInsertAndStripEffects.makeInsertEffectViewer = () => ({});
+    });
+    const groups = listAll(harness).groups;
+    assert.equal(groups['track.insert.empty'].error.code, 'API_UNAVAILABLE');
+    assert.equal(groups['track.insert.slots'].error.code, 'HOST_LIMIT_EXCEEDED');
+    expectError(harness.call('controls.get', { key: 'track.insert.slot.0.on' }), 'INVALID_CONTROL');
+});
+
 test('Control Room bindings use declared host maxima and report missing values', () => {
     const harness = fixture((api, state, { host }) => {
-        const slot = () => Object.fromEntries(['mLevelValue', 'mMuteValue', 'mBypassInserts',
+        const slot = () => ({ ...Object.fromEntries(['mLevelValue', 'mMuteValue', 'mBypassInserts',
             'mSelectSourceMonitorMixValue', 'mSelectSourceExternalInputValue', 'mSelectSourceAuxValue',
             'mListenEnabledValue', 'mListenLevelValue', 'mDimActiveValue', 'mTalkbackEnabledValue',
             'mTalkbackLevelValue', 'mMetronomeClickActiveValue', 'mMetronomeClickLevelValue',
-            'mMetronomeClickPanValue', 'mReferenceLevelEnabledValue'].map(field => [field, {}]));
+            'mMetronomeClickPanValue', 'mReferenceLevelEnabledValue'].map(field => [field, {}])),
+            getSelectSourceCueValueByIndex(index) { assert.equal(index, 0); return {}; } });
         host.mControlRoom = {
-            mMainChannel: slot(), mTalkbackActiveValue: {},
+            mMainChannel: slot(), mTalkbackActiveValue: {}, mSelectNextDownmixPresetValue: {},
+            getSelectSourceExternalInputValueByIndex: () => ({}), getSelectTargetMonitorValueByIndex: () => ({}),
             getMaxCueChannels: () => 1, getCueChannelByIndex: index => { assert.equal(index, 0); return slot(); },
             getMaxPhonesChannels: () => 1, getPhonesChannelByIndex: index => { assert.equal(index, 0); return slot(); },
             getMaxExternalInputChannels: () => 1, getExternalInputChannelByIndex: () => slot(),
@@ -50,28 +158,126 @@ test('Control Room bindings use declared host maxima and report missing values',
     });
     for (const key of ['controlRoom.talkbackActive', 'controlRoom.main.referenceLevelEnabled',
         'controlRoom.cue.0.sourceAux', 'controlRoom.phones.0.listenLevel',
-        'controlRoom.externalInput.0.level', 'controlRoom.talkback.0.mute', 'controlRoom.monitor.0.bypassInserts']) {
+        'controlRoom.externalInput.0.level', 'controlRoom.talkback.0.mute', 'controlRoom.monitor.0.bypassInserts',
+        'controlRoom.sourceExternalInput.0', 'controlRoom.targetMonitor.0',
+        'controlRoom.main.sourceCue.0', 'controlRoom.phones.0.sourceCue.0']) {
         assert.equal(harness.call('controls.get', { key }).data.control.available, true);
     }
     assert.equal(harness.call('controls.set', { key: 'controlRoom.cue.0.level', value: 0.5 }).data.execution, 'submitted');
+    assert.equal(harness.call('controls.set', { key: 'controlRoom.nextDownmix', value: 1 }).data.execution, 'submitted');
     expectError(harness.call('controls.get', { key: 'controlRoom.cue.1.level' }), 'INVALID_CONTROL');
     expectError(harness.call('controls.set', { key: 'controlRoom.alertDimActive', value: 1 }), 'API_UNAVAILABLE');
 });
 
+test('mixer bank actions use fixed host actions and reject non-unit values', () => {
+    const harness = fixture((api, state, { host }) => {
+        host.mMixConsole.makeMixerBankZone = name => {
+            assert.equal(name, 'CubaseAI MCP');
+            return { mAction: Object.fromEntries(['mPrevBank', 'mNextBank', 'mShiftLeft', 'mShiftRight', 'mResetBank'].map(key => [key, {}])) };
+        };
+    });
+    assert.equal(harness.call('controls.get', { key: 'mixer.bank.next' }).data.control.available, true);
+    expectError(harness.call('controls.set', { key: 'mixer.bank.next', value: 0.5 }), 'INVALID_VALUE');
+    assert.equal(harness.call('controls.set', { key: 'mixer.bank.next', value: 1 }).data.execution, 'submitted');
+});
+
+test('mixer bank slots require observed identity and invalidate feedback on navigation or reassignment', () => {
+    const ids = Array.from({ length: 8 }, (_, index) => `bank-track-${index}`);
+    const values = [];
+    const harness = fixture((api, state, { host }) => {
+        host.mMixConsole.makeMixerBankZone = () => {
+            let index = 0;
+            return { mAction: { mPrevBank: {}, mNextBank: {}, mShiftLeft: {}, mShiftRight: {}, mResetBank: {} },
+                makeMixerBankChannel() {
+                    const slot = index++;
+                    const v = Object.fromEntries(['mVolume', 'mPan', 'mMute', 'mSolo', 'mRecordEnable', 'mMonitorEnable',
+                        'mAutomationRead', 'mAutomationWrite', 'mVUMeter', 'mVUMeterMax', 'mVUMeterClip', 'mVUMeterPeak'].map(name => [name, {}]));
+                    values[slot] = v;
+                    return { mValue: v, getUniqueIDString: () => ids[slot], getRuntimeID: () => slot + 100 };
+                } };
+        };
+    });
+    const key = 'mixer.channel.0.volume';
+    expectError(harness.call('controls.set', { key, value: 0.5, expectedChannelUniqueId: ids[0] }), 'CHANNEL_UNOBSERVED');
+    const item = harness.call('controls.get', { key }).data.control;
+    assert.deepEqual(item.channel, { index: 0, uniqueId: ids[0], runtimeId: 100 });
+    values[0].mVolume.mOnProcessValueChange(harness.device, harness.currentMapping(), 0.6);
+    assert.equal(harness.call('controls.get', { key }).data.control.observed.channelUniqueId, ids[0]);
+    assert.equal(harness.call('controls.set', { key, value: 0.5, expectedChannelUniqueId: ids[0] }).data.execution, 'submitted');
+    expectError(harness.call('controls.set', { key: 'mixer.channel.0.meter.level', value: 1, expectedChannelUniqueId: ids[0] }), 'READ_ONLY');
+    ids[0] = 'bank-new';
+    expectError(harness.call('controls.set', { key, value: 0.5, expectedChannelUniqueId: 'bank-track-0' }), 'CHANNEL_CHANGED');
+    assert.equal(harness.call('controls.get', { key }).data.control.observed, null);
+    assert.equal(harness.call('controls.get', { key }).data.control.channel.uniqueId, 'bank-new');
+    assert.equal(harness.call('controls.set', { key: 'mixer.bank.next', value: 1 }).data.execution, 'submitted');
+    expectError(harness.call('controls.set', { key, value: 0.5, expectedChannelUniqueId: 'bank-new' }), 'CHANNEL_UNOBSERVED');
+    assert.equal(harness.call('controls.get', { key: 'mixer.channel.7.pan' }).data.control.channel.uniqueId, ids[7]);
+    harness.deactivate();
+    harness.activate();
+    expectError(harness.call('controls.set', { key, value: 0.5, expectedChannelUniqueId: 'bank-new' }), 'STALE_SESSION');
+});
+
+test('bank channel missing identities and wrong identifier fields fail closed', () => {
+    const harness = fixture((api, state, { host }) => {
+        host.mMixConsole.makeMixerBankZone = () => ({ makeMixerBankChannel: () => ({
+            mValue: { mVolume: {} }, getUniqueIDString: () => '', getRuntimeID: () => 1
+        }) });
+    });
+    expectError(harness.call('controls.get', { key: 'mixer.channel.0.volume' }), 'NO_CHANNEL');
+    expectError(harness.call('controls.set', { key: 'mixer.channel.0.volume', value: 0.5 }), 'CONFIRMATION_REQUIRED');
+    expectError(harness.call('controls.set', { key: 'track.volume', value: 0.5, expectedChannelUniqueId: 'id' }), 'INVALID_ARGUMENT');
+});
+
+test('bank slot runtime replacement invalidates admission even when its unique ID is unchanged', () => {
+    let runtimeId = 100;
+    const harness = fixture((api, state, { host }) => {
+        host.mMixConsole.makeMixerBankZone = () => ({ makeMixerBankChannel: () => ({
+            mValue: { mVolume: {} }, getUniqueIDString: () => 'same-id', getRuntimeID: () => runtimeId
+        }) });
+    });
+    const key = 'mixer.channel.0.volume';
+    assert.equal(harness.call('controls.get', { key }).data.control.channel.runtimeId, 100);
+    runtimeId = 200;
+    expectError(harness.call('controls.set', { key, value: 0.5, expectedChannelUniqueId: 'same-id' }), 'CHANNEL_CHANGED');
+    expectError(harness.call('controls.set', { key, value: 0.5, expectedChannelUniqueId: 'same-id' }), 'CHANNEL_UNOBSERVED');
+});
+
+test('bank discovery reports an empty host slot as unavailable', () => {
+    const harness = fixture((api, state, { host }) => {
+        host.mMixConsole.makeMixerBankZone = () => ({ makeMixerBankChannel: () => ({
+            mValue: { mVolume: {} }, getUniqueIDString: () => '', getRuntimeID: () => 1
+        }) });
+    });
+    const listed = listAll(harness);
+    const control = listed.controls.find(item => item.key === 'mixer.channel.0.volume');
+    assert.equal(control.available, false);
+    assert.equal(control.error.code, 'NO_CHANNEL');
+    assert.equal(listed.groups['mixer.channel.0'].available, false);
+    assert.equal(listed.groups['mixer.channel.0'].error.code, 'NO_CHANNEL');
+});
+
+test('a missing filtered action binding is unavailable rather than submitted', () => {
+    const harness = fixture((api, state, { host, page }) => {
+        host.mMixConsole.makeMixerBankZone = () => ({ mAction: { mNextBank: {} } });
+        page.makeActionBinding = () => ({ filterByValue() { return null; } });
+    });
+    expectError(harness.call('controls.set', { key: 'mixer.bank.next', value: 1 }), 'API_UNAVAILABLE');
+});
+
 test('Control Room bounds and missing branches fail closed', () => {
     const missing = fixture();
-    assert.equal(missing.call('controls.list').data.groups.controlRoom.error.code, 'API_UNAVAILABLE');
+    assert.equal(listAll(missing).groups.controlRoom.error.code, 'API_UNAVAILABLE');
     expectError(missing.call('controls.set', { key: 'controlRoom.main.level', value: 1 }), 'API_UNAVAILABLE');
     const excessive = fixture((api, state, { host }) => {
         host.mControlRoom = { getMaxCueChannels: () => 17, getCueChannelByIndex: () => ({}) };
     });
-    const group = excessive.call('controls.list').data.groups['controlRoom.cue'];
+    const group = listAll(excessive).groups['controlRoom.cue'];
     assert.equal(group.count, 17);
     assert.equal(group.error.code, 'HOST_LIMIT_EXCEEDED');
     expectError(excessive.call('controls.get', { key: 'controlRoom.cue.0.level' }), 'INVALID_CONTROL');
 });
 
-function fixture(configure = () => {}) {
+function fixture(configure = () => {}, logger) {
     const device = {};
     let mapping = {};
     const nodes = new Map();
@@ -230,6 +436,11 @@ function fixture(configure = () => {}) {
     };
     const page = {
         mHostAccess: host,
+        makeActionBinding(surfaceValue, action) {
+            assert.ok(surfaceValue && action);
+            const binding = { filterByValue(value) { assert.equal(value, 1); return binding; } };
+            return binding;
+        },
         makeValueBinding(surfaceValue, hostValue) {
             surfaceValue.hostValue = hostValue;
             return { surfaceValue, hostValue };
@@ -292,7 +503,7 @@ function fixture(configure = () => {}) {
         }
     };
     configure(api, state, { host, page, driver });
-    const bridge = createController(api);
+    const bridge = createController(api, logger);
     let requestNumber = 0;
     function receive(op, args, id = (++requestNumber).toString(16).padStart(32, '0'), deadline = Date.now() + 60000) {
         const request = { v: 1, id, op, args, deadline };
@@ -332,6 +543,19 @@ function fixture(configure = () => {}) {
     return harness;
 }
 
+test('controller lifecycle telemetry records only bounded stages, not MIDI payloads', () => {
+    const logs = [];
+    const harness = fixture(() => {}, { log(message) { logs.push(message); } });
+    assert.equal(harness.status.ok, true);
+    assert.ok(logs.some(message => message.includes('controller constructed')));
+    assert.ok(logs.some(message => message.includes('mapping activated')));
+    assert.ok(logs.some(message => message.includes('first MIDI input')));
+    assert.ok(logs.some(message => message.includes('first idle')));
+    assert.ok(logs.some(message => message.includes('first response frame')));
+    assert.ok(logs.length <= 8);
+    assert.ok(logs.every(message => !message.includes(harness.session)));
+});
+
 function observeParameters(harness) {
     assert.equal(harness.call('objects.list', { root: 'trackSelection' }).ok, true);
     assert.equal(harness.call('parameters.list', { root: 'trackSelection', objectId: 2 }).ok, true);
@@ -340,6 +564,19 @@ function observeParameters(harness) {
 function expectError(response, code) {
     assert.equal(response.ok, false, JSON.stringify(response));
     assert.equal(response.error.code, code, JSON.stringify(response));
+}
+
+function listAll(harness) {
+    let offset = 0, groupOffset = 0, controlsDone = false, groupsDone = false;
+    const controls = [], groups = {};
+    while (!controlsDone || !groupsDone) {
+        const page = harness.call('controls.list', { offset, groupOffset }).data;
+        if (!controlsDone) { controls.push(...page.controls); controlsDone = page.nextOffset === null; }
+        if (!groupsDone) { Object.assign(groups, page.groups); groupsDone = page.nextGroupOffset === null; }
+        if (!controlsDone) offset = page.nextOffset;
+        if (!groupsDone) groupOffset = page.nextGroupOffset;
+    }
+    return { controls, groups };
 }
 
 test('production remote modules parse as ES5', () => {
@@ -371,13 +608,12 @@ test('factory registers exact ports and reports only real app and root data', ()
     assert.deepEqual(harness.detectionNames, harness.portNames);
     const status = harness.status.data;
     assert.equal(status.appVersion, '16.0.5');
-    assert.equal(status.bridgeRevision, '2026-11-10-coverage-2');
+    assert.equal(status.bridgeRevision, '2026-11-10-coverage-3.3');
     assert.deepEqual(status.policy, { backgroundOnly: true, fallback: false });
-    assert.equal(status.roots.length, 4);
-    assert.equal(status.roots[0].object.uniqueIdString, 'uid-1');
-    assert.equal(status.controls.length, 118);
-    assert.ok(status.controls.every(control => control.observed === null));
-    assert.deepEqual(status.commands.map(command => command.key), commands.map(command => command.key));
+    assert.equal(status.discovery.controlTotal, 124);
+    assert.equal(harness.call('objects.list', { root: 'trackSelection' }).data.baseObject.uniqueIdString, 'uid-1');
+    assert.ok(listAll(harness).controls.every(control => control.observed === null));
+    assert.deepEqual(harness.call('commands.list').data.commands.map(command => command.key), commands.map(command => command.key));
 });
 
 test('requests execute only on idle and all non-status operations require the active session', () => {
@@ -408,10 +644,10 @@ test('duplicate mutations are rejected and surface input echoes are not host rea
     expectError(harness.call('controls.set', { key: 'track.volume', value: 0.6 }, id), 'DUPLICATE_ID');
     assert.equal(harness.writes.length, 1);
     harness.emit('track.volume', 0.57);
-    const controls = harness.call('controls.list').data.controls;
+    const controls = listAll(harness).controls;
     assert.deepEqual(controls.find(control => control.key === 'track.volume').observed, { value: 0.57, revision: 1 });
     harness.changed();
-    assert.deepEqual(harness.call('controls.list').data.controls.find(control => control.key === 'track.volume').observed,
+    assert.deepEqual(listAll(harness).controls.find(control => control.key === 'track.volume').observed,
         { value: 0.57, revision: 1 });
 });
 
@@ -568,7 +804,7 @@ test('only confirmed allowlisted commands with canPerform true pulse their bound
 test('missing DirectAccess and wrong app versions fail closed', () => {
     const absent = fixture((api, state, { host }) => { delete host.makeDirectAccess; });
     assert.equal(absent.status.data.features.directAccess, false);
-    assert.ok(absent.status.data.roots.every(root => root.available === false && root.error.code === 'API_UNAVAILABLE'));
+    expectError(absent.call('objects.list', { root: 'trackSelection' }), 'API_UNAVAILABLE');
     expectError(absent.call('controls.set', { key: 'track.volume', value: 0.9 }), 'API_UNAVAILABLE');
     assert.equal(absent.writes.length, 0);
     const wrong = fixture((api, state) => { state.version = '15.0.5'; });
@@ -592,8 +828,6 @@ test('request saturation is bounded and rejected requests are not replayable', (
 
 test('native tempo and time setters are validated, feature-tested and submitted once', () => {
     const harness = fixture();
-    assert.equal(harness.status.data.features.tempo, true);
-    assert.equal(harness.status.data.features.time.secondary.cycleRight, true);
     expectError(harness.call('transport.tempo', { bpm: 0 }), 'INVALID_VALUE');
     assert.equal(harness.call('transport.tempo', { bpm: 10 }).data.execution, 'submitted');
     const tempo = harness.call('transport.tempo', { bpm: 123.5 });
@@ -608,7 +842,6 @@ test('native tempo and time setters are validated, feature-tested and submitted 
     delete harness.host.mTransport.mTimeDisplay.mSecondary.mCycleLocatorRight.setTime;
     expectError(harness.call('transport.time', { display: 'secondary', locator: 'cycleRight', time: '1' }), 'API_UNAVAILABLE');
     assert.equal(harness.timeWrites.length, 1);
-    assert.equal(harness.call('bridge.status').data.features.time.secondary.cycleRight, false);
     assert.equal(harness.call('controls.set', { key: 'track.automationWrite', value: 1 }).data.execution, 'submitted');
 });
 
@@ -665,7 +898,7 @@ test('native callback properties may be write-only', () => {
             return access;
         };
     });
-    assert.ok(harness.status.data.roots.every(root => root.available));
+    assert.equal(harness.call('objects.list', { root: 'trackSelection' }).ok, true);
 });
 
 test('ordinary update notifications preserve observed IDs and host feedback', () => {
@@ -675,7 +908,7 @@ test('ordinary update notifications preserve observed IDs and host feedback', ()
     harness.surfaces['track.volume'].hostValue.mOnProcessValueChange(harness.device, harness.currentMapping(), 0.5);
     access.mOnObjectChange(harness.device, harness.currentMapping(), 2);
     assert.equal(harness.call('parameters.list', { root: 'trackSelection', objectId: 2 }).ok, true);
-    const controls = harness.call('controls.list').data.controls;
+    const controls = listAll(harness).controls;
     assert.equal(controls.find(control => control.key === 'track.volume').observed.value, 0.5);
 });
 
@@ -711,7 +944,7 @@ test('native parameter read values are not forced into a normalized interval', (
 
 test('extended EQ, filter, send and metronome controls use actual host bindings', () => {
     const harness = fixture();
-    const listed = harness.call('controls.list').data;
+    const listed = listAll(harness);
     assert.deepEqual(listed.groups['track.send'], { available: true, count: 2 });
     assert.deepEqual(listed.groups['track.cueSend'], { available: true, count: 1 });
     for (const key of ['track.filter.gain', 'track.filter.lowCutFrequency', 'track.eq.1.gain',
@@ -728,7 +961,7 @@ test('missing send collections report unavailable rather than inventing slots', 
     const harness = fixture((api, state, context) => {
         delete context.host.mTrackSelection.mMixerChannel.mSends;
     });
-    const listed = harness.call('controls.list').data;
+    const listed = listAll(harness);
     assert.equal(listed.groups['track.send'].available, false);
     assert.equal(listed.groups['track.send'].error.code, 'API_UNAVAILABLE');
     assert.equal(listed.controls.some(control => control.key.indexOf('track.send.') === 0), false);
@@ -755,10 +988,14 @@ test('transport reads only active-session host callbacks', () => {
     const initial = harness.call('transport.get').data;
     assert.equal(initial.observed.tempo, null);
     assert.equal(initial.observed.primary.cursor, null);
+    assert.equal(initial.features.tempo, true);
+    assert.equal(initial.features.time.secondary.cycleRight, true);
     const display = harness.host.mTransport.mTimeDisplay;
     const previousMapping = harness.currentMapping();
     display.mOnChangeTempoBPM(harness.device, previousMapping, 123);
     display.mPrimary.mTransportLocator.mOnChange(harness.device, previousMapping, '1.2.3.0', 'Bars+Beats');
+    delete display.mSecondary.mCycleLocatorRight.setTime;
+    assert.equal(harness.call('transport.get').data.features.time.secondary.cycleRight, false);
     const observed = harness.call('transport.get').data.observed;
     assert.deepEqual(observed.tempo, { bpm: 123 });
     assert.deepEqual(observed.primary.cursor, { time: '1.2.3.0', format: 'Bars+Beats' });
@@ -849,7 +1086,7 @@ test('a throwing edition-specific host branch does not prevent the bridge from s
         });
     });
     assert.equal(harness.status.ok, true);
-    const listed = harness.call('controls.list').data;
+    const listed = listAll(harness);
     assert.equal(listed.groups['track.eq'].available, false);
     assert.match(listed.groups['track.eq'].error.message, /native branch unavailable/);
     expectError(harness.call('controls.set', { key: 'track.eq.1.gain', value: 0.5 }), 'API_UNAVAILABLE');

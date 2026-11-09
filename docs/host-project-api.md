@@ -16,6 +16,8 @@ The request method initializes the cached service via a global lookup at RVA `0x
 
 `Components/projectplugin.dll` has RTTI names `IProjectPluginService`, `ProjectPluginRequest`, `GetMusicalTrackRequest`, `CreateTracksRequest`, `MixExportRequest`, `TransportRequest`, `LocatorsRequest`, and corresponding response types. The initialized strings at RVAs `0x33d68`–`0x33ee8` include `payload_version`, `command`, `tracks`, `clips`, `events`, `file_path`, `response_name`, `response_status`, `track`, and `response_action`, plus version-pattern text `^\\d{4}\\.\\d{2}\\.\\d{2}$`. These strings identify candidate fields, not a complete request or validated schema.
 
+The bounded parser/handler inventory, exact known literals, field evidence, and unverified schema boundaries are maintained in `project-command-catalog.md`.
+
 ### Read-only request candidate
 
 The request parser at `0x23730` compares `command` against `ExportMix`, `CreateTracks`, `Transport`, `Locators`, and `GetMusicalTrack`. The `GetMusicalTrack` branch calls `0x22d50`, which looks up a required `type` string and accepts exactly `Tempo`, `Key Signature`, `Chord`, or `Bar Signature`. If `range` is absent, it selects internal range mode 0. If present, `range.mode` must be `Locators` or `Seconds`; the latter reads `start_time` and `duration`, rejecting a duration that compares less than or equal to zero. Numeric helper behavior and all malformed inputs remain unverified.

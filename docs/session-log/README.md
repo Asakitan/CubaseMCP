@@ -9,3 +9,4 @@
 | [05](session-05.md) | 2026-11-10 | Verify the component-factory boundary and record the unresolved host registration contract. |
 | [06](session-06.md) | 2026-11-10 | Recover native project request contracts, expand declared controls and enforce a uniform active-bridge gate. |
 | [07](session-07.md) | 2026-11-10 | Recover native project context and test automatic driver activation without UI. |
+| [08](session-08.md) | 2026-11-10 | Repair isolated startup, deploy coverage 3.3 and investigate native project and MIDI activation paths. |

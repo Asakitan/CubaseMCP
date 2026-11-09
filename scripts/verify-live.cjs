@@ -53,8 +53,7 @@ async function main() {
             return { objectId: target.objectId, title: target.title, parameterCount: parameters.total, returned: parameters.items.length };
         });
         await check('live-control-feedback', async () => {
-            const controls = await call('cubase_controls_list', { session: status.session });
-            const volume = controls.controls.find(control => control.key === 'track.volume');
+            const volume = (await call('cubase_control_get', { session: status.session, key: 'track.volume' })).control;
             assert.equal(volume.available, true);
             assert.equal(typeof volume.observed.value, 'number');
             return { volume: volume.observed.value };
@@ -62,15 +61,15 @@ async function main() {
         if (args.includes('--write')) {
             await check('volume-write-read-restore', async () => {
                 const track = await call('cubase_selected_track', { session: status.session });
-                const before = await call('cubase_controls_list', { session: status.session });
-                const original = before.controls.find(control => control.key === 'track.volume').observed.value;
+                const before = await call('cubase_control_get', { session: status.session, key: 'track.volume' });
+                const original = before.control.observed.value;
                 const target = original >= 0.5 ? 0.25 : 0.75;
                 async function observeUntil(predicate) {
                     const deadline = Date.now() + 2000;
                     let observed;
                     do {
-                        const controls = await call('cubase_controls_list', { session: status.session });
-                        observed = controls.controls.find(control => control.key === 'track.volume').observed.value;
+                        const control = await call('cubase_control_get', { session: status.session, key: 'track.volume' });
+                        observed = control.control.observed.value;
                         if (predicate(observed)) return observed;
                         await new Promise(resolve => setTimeout(resolve, 50));
                     } while (Date.now() < deadline);

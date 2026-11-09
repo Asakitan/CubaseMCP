@@ -33,7 +33,7 @@ npm run doctor -- --live
 
 `install:remote` 只复制四个 MIDI Remote 文件，默认不覆盖不同内容。Cubase 需要在正常使用时加载该驱动。不要把这两个控制端口加入 MIDI 轨道的输入或 MIDI Thru 回路。MCP 服务本身不会安装驱动或启动其他应用。
 
-本机已经完成以上安装。诊断用 `npm run start:cubase-background` 在独立 Windows 桌面打开官方 AI 模板的副本，不切换当前桌面；它不是不依赖 GUI 的 Cubase 引擎，首次工程目录等初始化可能仍需确认。本次已获得允许，在隔离桌面完成了一次性初始化；相关临时代码仅留在忽略的 `artifacts/setup`，未接入 MCP 后端。
+本机已经完成以上安装。诊断用 `npm run start:cubase-background` 在独立 Windows 桌面打开测试副本，不切换当前桌面；它不是不依赖 GUI 的 Cubase 引擎，也不是 MCP 工程创建接口。本次实验副本已经在私有桌面打开；完整的自动化生命周期和无需手动初始化仍是未完成目标。
 
 VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `cubase-ai16-headless`。其他客户端的 stdio 启动命令为 `node E:/VC/CubaseMCP/dist/src/server.js`。标准输出只用于 MCP 协议。
 
@@ -50,7 +50,9 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 3. 带同一 `session`、`root`、`objectId` 和 `tag` 调用 `cubase_parameter_set`；可指定 normalized、plain 或 display 格式。
 4. 读回确认修改。`submitted` 只表示已经提交，不等于操作已完成。
 
-共 23 个 MCP 工具。新增单参数及单控制项查询、所选轨道身份和前后导航、混音通道位置、速度和时间显示反馈，以及宿主版本和功能上限查询。已选轨控制包括四段 EQ、前级滤波、音频发送、Cue Send、乐器槽、五类通道条效果的 20 个绑定、自动化和只读电平表；发送槽数量按宿主返回值确定，可用性以实际返回为准。`cubase_control_set` 可传入 `expectedTrackUniqueId` 防止写到已经改变的选中轨道。插件替换要求 `confirmReplacement:true`，当前选择命令要求 `confirmCurrentSelection:true`。另有 Control Room 根、主通道及按宿主上限创建的索引通道绑定；这不表示 AI 版本实际开放了 Control Room。菜单执行仅限固定清单。
+共 23 个 MCP 工具。单参数及单控制项查询、所选轨道身份和前后导航、混音通道位置、速度和时间显示反馈，以及宿主版本和功能上限查询均有明确会话约束。已选轨控制包括四段 EQ、前级滤波、发送、乐器槽、五类通道条效果及其参数页、自动化和只读电平表；发送槽数量按宿主返回值确定，可用性以实际返回为准。`cubase_control_set` 可传入 `expectedTrackUniqueId` 防止写到已经改变的选中轨道。插件替换要求 `confirmReplacement:true`，当前选择命令要求 `confirmCurrentSelection:true`。另有 Control Room 及固定混音器银行操作；声明存在不等于 AI 版本实际开放了相应功能。菜单执行仅限固定清单。
+
+`cubase_status` 返回紧凑握手，不再内嵌完整对象和控制表。`cubase_controls_list` 的控制和分组分别分页，按 `nextOffset`、`nextGroupOffset` 获取全部项目；`cubase_transport_get` 提供速度与定位器的可用性和实际反馈。长身份标识原样保留，描述性元数据有长度上限。
 
 轨道控制的过程值和显示值来自宿主反馈，尚未收到反馈时为 `null`；切换轨道会撤销上一轨缓存。速度和时间显示也只返回本次活动映射收到的回调，不推测未反馈的值。
 
@@ -64,13 +66,13 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 
 ## 验证状态
 
-本轮 TypeScript 构建通过，测试 **57/57** 通过。统一版本门禁覆盖全部 19 个带会话的宿主操作，诊断命令将端口和握手状态与实际操作就绪状态分开报告。
+本轮 TypeScript 构建通过，测试 **70/70** 通过；新增临时虚拟端口客户端 PID 检查也已通过。统一版本门禁覆盖全部 19 个带会话的宿主操作，诊断命令将端口和握手状态与实际操作就绪状态分开报告。
 
-控制器 `2026-11-10-coverage-2` 已安装并读回核对；原版本备份于 `artifacts/runtime/controller-before-coverage-2-20261110.js`，另外三个脚本内容未变。上一轮运行的隔离 Cubase 当时加载更早版本，实机返回 `readyForOperations:false`，一次旧版对象读取在执行前以 `BRIDGE_UPGRADE_REQUIRED / not_started` 结束，证据见 `artifacts/live-smoke/guard-live-20261110.json`。新控制器尚待自动激活及实机验收。
+控制器 `2026-11-10-coverage-3.3` 已安装并读回核对，私有 Cubase 的脚本日志证实其已构造；新增身份保护的混音器银行通道及插入效果查看器尚未通过实机控制验证。之前入口第 7 行的 `module` 错误已修复并有回归测试；最新实例尚未出现设备或映射激活记录，真实状态请求仍超时，测试在写入前结束。端口打开并不等于 MCP 握手成功。
 
 较早的 `artifacts/live-smoke/verification.json` 记录了真实 Cubase AI 16.0.5 的发现、参数、反馈和音量写入恢复；它不证明本轮新增控制项、工程存储或完整功能覆盖。新版 `verify:live` 脚本要求当前控制器，旧记录与本轮实机验收分别记录。详细状态见 [STATUS](STATUS.md)。
 
-**当前状态（第 07 轮）**：已获准重启专用隔离测试实例，原工程和自动备份均已保留。启动器新增显式现有 CPR 路径和私有桌面隐藏控制台，当前测试副本为 `MCP Recovered 20261110.cpr`；实例尚停在启动确认阶段，当前没有已验证的 MIDI 握手。创建、存储、编辑工程和完整功能验收仍在进行，端口存在、进程存活和完成状态分别记录。详见 [启动恢复记录](docs/startup-recovery-investigation.md)。
+**当前状态（第 08 轮）**：专用隔离实例已打开单独的 `MCP Device Test 20261110.cpr` 实验副本，原工程和自动备份均已保留，前台未切换；当前仍没有已验证的 MIDI 握手。创建、存储、编辑工程和完整功能验收仍在进行。详见 [启动恢复记录](docs/startup-recovery-investigation.md) 与 [脚本状态调查](docs/midi-script-state.md)。
 
 ## 原生项目接口调查
 
@@ -80,7 +82,7 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 powershell.exe -NoProfile -File scripts/Inspect-ProjectFactory.ps1 -ProbeProjectService
 ```
 
-该探针在独立进程中成功获取并释放了原生项目服务接口，没有修改工厂检查、伪造宿主、连接运行中的 Cubase 或发送工程请求。报告见 `artifacts/ipc/service-probe-20261110.json`。已静态还原一个 `GetMusicalTrack` 请求候选，但真实工程上下文和返回值生命周期仍待接通；当前 MCP 尚未实现工程创建、存储、编辑和参数化导出。
+该独立探针成功获取并释放原生项目服务接口，报告见 `artifacts/ipc/service-probe-20261110.json`。另一个经主人批准的固定诊断 DLL 在隔离测试进程中取得宿主接口并提交一次只读 `GetMusicalTrack` 请求，收到关联的错误回调，没有取得工程数据；没有修改程序指令或产品准入状态。当前 MCP 尚未实现工程创建、存储、编辑和参数化导出。
 
 此前 R1 工具返回缺少 `SeLoadDriverPrivilege`，驱动未加载；本轮已通过普通用户态只读检查，确认一个记录在案的宿主进程确实注册了项目接口。该快照不等于当前进程已就绪，也未增加其他运行后端。
 

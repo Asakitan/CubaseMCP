@@ -2,7 +2,7 @@
 
 - Target Cubase AI 16 on Windows. The MIDI Remote API declarations shipped with the installed application are authoritative.
 - Keep one MIDI backend. Never introduce fallback, mock runtime, foreground control, keyboard/mouse injection, arbitrary command execution or silent replay.
-- ES5 CommonJS is mandatory under `remote/`. Test the real controller handlers with an API-shaped fixture; fixtures are not a selectable production backend.
+- ES5 CommonJS is mandatory for modules under `remote/`; the Cubase entry script executes at top level and must not use `module.exports`. Test the real controller handlers with an API-shaped fixture; fixtures are not a selectable production backend.
 - Use strict session/object/parameter admission and report submitted/unknown outcomes accurately.
 - Missing APIs and unavailable editions return errors, not invented values or success.
 - Standard output of the server is exclusively MCP JSON-RPC. Diagnostics use stderr or the separate doctor CLI.
@@ -16,6 +16,7 @@
 - [x] Requirements and strict background constraints recorded.
 - [x] Project scaffold and dependencies installed.
 - [x] No editor extension installation required.
-- [x] Expanded controller integration, build and verification complete (57 tests); coverage-2 strip/Control Room controls installed.
-- [x] Native MIDI prerequisites and real Cubase AI16.0.5 core-chain verification complete.
-- [x] Coverage upgrade status and handoff synchronized; active Cubase driver reload remains pending.
+- [x] Expanded controller integration and build complete (70 tests); coverage-3.3 installed and constructed in the isolated host, with its mixer-bank behavior still awaiting live validation.
+- [x] Native MIDI prerequisites and earlier real Cubase AI16.0.5 core-chain verification recorded.
+- [ ] Activate the current device/mapping without foreground input and verify the current live controller.
+- [ ] Implement and verify project creation, saving, event editing, rendering and remaining Cubase feature coverage.

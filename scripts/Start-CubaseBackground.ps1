@@ -48,8 +48,10 @@ if ($ProjectPath) {
 $Result = [CubaseAiMcp.CubaseDesktop]::Start($Executable, $Project, $ProjectDirectory, $DesktopName)
 $Result | Add-Member -NotePropertyName HostPid -NotePropertyValue $PID
 $Result | Add-Member -NotePropertyName Project -NotePropertyValue $Project
-$Result | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $ProjectDirectory 'launch.json') -Encoding UTF8
+$StateDirectory = Join-Path $Root 'artifacts\runtime'
+[IO.Directory]::CreateDirectory($StateDirectory) | Out-Null
+$Result | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $StateDirectory 'cubase-launch.json') -Encoding UTF8
 $Result | ConvertTo-Json
 $ExitCode = [CubaseAiMcp.CubaseDesktop]::WaitForExit()
 [PSCustomObject]@{ status = 'exited'; processId = $Result.ProcessId; exitCode = $ExitCode } |
-    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $ProjectDirectory 'exit.json') -Encoding UTF8
+    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $StateDirectory 'cubase-exit.json') -Encoding UTF8

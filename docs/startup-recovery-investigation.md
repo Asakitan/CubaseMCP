@@ -16,11 +16,11 @@ Date: 2026-11-10. Scope: the owned `MCP Smoke` test project and isolated Cubase 
 
 ## Current state
 
-- Cubase: PID 58536, requested project `artifacts/live-smoke/MCP Recovered 20261110.cpr`, private desktop `winsta0/CubaseAI_MCP`; startup incomplete at last observation.
-- Desktop/process holder: PID 48104. MIDI port host: PID 55396.
-- `artifacts/live-smoke/launch.json` records identical foreground window handles before and after the native launch.
-- No project-readiness or coverage-2 MIDI handshake has been observed. Do not repeat status requests without a new readiness observation, and do not count copied files as native project functionality.
+- A later scoring-engine crash showed `ERROR_ACCESS_DENIED` while opening an interprocess cache. The single administrator-owned cache candidate and its ACL were archived, along with the two transient startup markers. A fresh process recreated the cache for the current user and opened the recovered score project. The complete original failed path was not recovered from the dump; see `docs/scoring-startup-failure.md` for the evidence and limitation.
+- Cubase: PID 3720, requested project `artifacts/live-smoke/MCP Device Test 20261110.cpr`, private desktop `winsta0/CubaseAI_MCP`; the corresponding project window was observed on that private desktop. The desktop/process holder is PID 6156; MIDI port host is PID 62944. The new file is an experimental copy with only the existing same-length compressed MIDI Remote instance block changed; it is not an MCP project-creation result.
+- `artifacts/runtime/cubase-launch.json` is the current receipt and recorded identical foreground window handles before and after native launch. Older per-project launch and exit files are historical.
+- Previous PID 17596 logged construction of controller 3.1 and was initially a client of both virtual ports; a later controlled hotplug left the replacement endpoints without that client. PID 45628 logged construction of controller 3.2. Current PID 3720 logged construction of controller `2026-11-10-coverage-3.3` and appears as a client of both endpoints. No device/mapping activation was logged, and the live status request timed out before any write. Do not count copied files or process/port readiness as native MCP project functionality.
 
 ## Boundaries
 
-The earlier native factory and registry evidence remains valid for its recorded processes. A transient read-only registry snapshot is not proof that a later process is ready. No UI fallback, generic window-command tool, or alternate runtime backend was introduced. Temporary CIM, debugger and private screenshot diagnostics remain under ignored `artifacts/startup`; production requests still use the strict MIDI path. The startup blocker and complete native project lifecycle remain open work.
+The earlier native factory and registry evidence remains valid for its recorded processes. A transient read-only registry snapshot is not proof that a later process is ready. No UI fallback, generic window-command tool, or alternate runtime backend was introduced. Temporary CIM, debugger and private screenshot diagnostics remain under ignored `artifacts/startup`; production requests still use the strict MIDI path. Repeatable device activation and the complete native project lifecycle remain open work.

@@ -97,18 +97,22 @@ export function createServer(config: Configuration = loadConfig()) {
     expose('cubase_plugin_set', 'plugins.set', 'Assign a plugin UID discovered for this slot. Suppresses the discard dialog; existing plugin state can be replaced. Requires explicit confirmation.', {
         ...reference, pluginUid: z.string().min(1).max(512), confirmReplacement: z.literal(true)
     }, false);
-    expose('cubase_controls_list', 'controls.list', 'Read live transport, selected-track and quick-control values. Unknown values remain unknown until host feedback arrives.', session);
+    expose('cubase_controls_list', 'controls.list', 'Page declared controls and groups independently. Follow nextOffset and nextGroupOffset until null; unknown values remain unknown until host feedback arrives.', {
+        ...session, offset: z.number().int().nonnegative().default(0), limit: z.number().int().min(1).max(16).default(16),
+        groupOffset: z.number().int().nonnegative().default(0), groupLimit: z.number().int().min(1).max(16).default(16)
+    });
     expose('cubase_control_get', 'controls.get', 'Read one declared control, its availability, read-only status and last host feedback.', {
         ...session, key: z.string().min(1).max(100)
     });
-    expose('cubase_control_set', 'controls.set', 'Set one declared background control by key; value is normalized 0..1. Buttons may be momentary. Does not open or focus a window.', {
+    expose('cubase_control_set', 'controls.set', 'Set one declared background control by key; value is normalized 0..1. Bank channel writes require a previously observed expectedChannelUniqueId. Buttons may be momentary. Does not open or focus a window.', {
         ...session, key: z.string().min(1).max(100), value: z.number().min(0).max(1),
-        expectedTrackUniqueId: z.string().min(1).max(512).optional()
+        expectedTrackUniqueId: z.string().min(1).max(512).optional(),
+        expectedChannelUniqueId: z.string().min(1).max(512).optional()
     }, false);
     expose('cubase_tempo_set', 'transport.tempo', 'Submit a tempo in BPM through the native transport API. The host determines its supported range; inspect the observed tempo before assuming completion.', {
         ...session, bpm: z.number().finite().positive()
     }, false);
-    expose('cubase_transport_get', 'transport.get', 'Read tempo and primary/secondary cursor and cycle locators as reported by native host callbacks. Values not yet observed are null.', session);
+    expose('cubase_transport_get', 'transport.get', 'Read observed tempo and locator callbacks and available tempo/time setter features. Values not yet observed are null.', session);
     expose('cubase_locator_set', 'transport.time', 'Set the playhead or one cycle locator in the selected primary/secondary time-display format. Supply a Cubase time string in that existing format; does not change the display or open a dialog.', {
         ...session, display: z.enum(['primary', 'secondary']),
         locator: z.enum(['cursor', 'cycleLeft', 'cycleRight']), time: z.string().min(1).max(64)

@@ -1,0 +1,45 @@
+# MIDI Remote Device-State Investigation
+
+Date: 2026-11-10. Target: Cubase AI 16.0.5 Windows x64. This note separates static metadata from bounded read-only snapshots of the isolated test processes. The investigation did not invoke host functions, write process memory, change configuration, send MIDI, operate UI, or restart a process.
+
+## Current evidence
+
+The coordinating task reports that the private PID `17596` logged `controller constructed 2026-11-10-coverage-3.1`, both virtual port client lists included that PID, and the target log did not contain the expected `device activated`, `mapping activated`, or first-SysEx messages; `bridge.status` timed out. Those are reported external observations, not independently repeated by this static slice. A constructed driver and open MIDI clients do not establish that an instance was automatically detected or activated, or that a particular port pair was bound to that instance.
+
+The project controller invokes `makeDeviceDriver('CubaseAI', 'MCP', 'CubaseAI MCP')`, creates an input and output, then configures a detection unit with exact name filters `CubaseAI MCP To Cubase` and `CubaseAI MCP From Cubase` (`remote/controller.js:110–116`). The installed Steinberg API declaration `midiremote_factory_scripts/.api/v1/midiremote_api_v1.d.ts` documents `expectInputNameEquals` and `expectOutputNameEquals` on `MR_DetectionPortPair` and documents mapping activation callbacks. The installed `MIDI Remote/Driver Scripts/README_v1.html` describes these port name rules as automatic device detection. These declarations establish the configured API shape, not whether the current OS-visible names match or whether detection ran successfully.
+
+## Bounded live model observation
+
+Static control flow from `SystemRoot.private_loadScripts` through `0x30b3e40` identifies a shared-pointer global at RVA `0x595a4c8`; its initializer constructs RTTI `DomainModel` with vtable RVA `0x45fae68`. In alive private PID `17596` at 2026-11-09 16:45:19 UTC, that pointer identified object `0x78f8fad0` with the expected vtable. Its `+0x38` vector contained 49 shared-pointer pairs; the vector header was unchanged across the bounded read, and all 49 object vtables matched `DeviceDriver`. Entry 0 was `0x7e453ae0` with three initialized string fields `CubaseAI`, `MCP`, and `CubaseAI MCP`, matching the requested driver. This establishes a live model object, not an active mapping.
+
+The target driver's `+0x88` vector had one item, RTTI `DeviceDetectionUnit`; that object's `+0x28` vector had one item, RTTI `DetectionPortPair`. The pair's `+0x28` and `+0x38` references had RTTI `DeviceMidiInput` and `DeviceMidiOutput`; its `+0x48` and `+0x60` vectors each contained one `DetectionInputNameFilterEquals` and `DetectionOutputNameFilterEquals`, respectively. Their observed strings were `CubaseAI MCP To Cubase` and `CubaseAI MCP From Cubase`; the driver port-object string fields matched those same names. Evidence with addresses, timestamps and limits is `artifacts/ipc/midi-device-model-17596.json`.
+
+The driver fields at `+0xe0`, `+0xe8`, and `+0xf0` were zero in the observation, consistent with an empty vector representation. The static relationship between that vector and the `DeviceInstances` property has not been established, so this is **not** proof of zero instances. Parent-reported port-host restart and refresh occurred before these object observations; the configured model names do not establish that the old process has current host-port handles or that the new virtual ports were bound.
+
+## Native model leads, not a readable ABI
+
+MSVC RTTI in the executable identifies `Steinberg::Lego::MidiRemote::DomainModel::DeviceDriver` at vtable RVA `0x45fa4b8` and `DeviceInstance` at `0x45fa818`. Their observed constructors are RVAs `0x302dfb0` and `0x3016b60`, respectively. The driver constructor initializes `std::string`-shaped members at `+0x28`, `+0x48`, and `+0x68` and several containers. The target-driver path is observed above, but the precise `DeviceInstances` collection getter is still unresolved. Do not interpret these offsets as a supported API or read arbitrary pointers based only on the constructor.
+
+Initialized-data keys include `DeviceDrivers`, `VendorName`, `DetectionUnits`, `DeviceInstances`, `HostPortName`, `InputNameFilters`, and `OutputNameFilters`. The serialization-related code at `0x31f2430` refers to `VendorName`, `DetectionUnits`, and `DeviceInstances`; `0x31f53e0` refers to `DeviceDrivers`. These are field-name leads, not proof of target instance state, live bindings, or a directly callable serialization contract. The executable also contains a JavaScript binding RTTI name `Accessor_DomainModel_DeviceDriver_DeviceDetectionUnit`; its presence does not establish a public native instance-creation ABI.
+
+No documented non-UI persistence format or standard externally callable native device-instance creation function with verified ABI, thread, lifetime, and side effects was recovered in this slice. No such method should be inferred from the model names.
+
+## Reproduction and next step
+
+`python scripts/midi-device-state-inspect.py --function driver_constructor` or `instance_constructor` prints a bounded static disassembly of the installed executable. It uses diagnostic `pefile` and `capstone` dependencies and never opens a process. Generated RTTI and reference evidence is under `artifacts/research/session-08`.
+
+## Follow-up: actual instance collection and candidate project
+
+Static constructor flow provides stronger evidence than the earlier `+0xe0` candidate: `0x313c6c0` locks a driver weak reference, obtains a newly constructed `DeviceInstance` through `0x2fcf330`, stores a weak driver reference at instance `+0x28`, and appends the instance shared reference to the driver's vector at `+0x1d0/+0x1d8/+0x1e0` (append at `0x313c92c–0x313c95f`). This identifies the instance collection by the values actually appended, not merely by a serialized field name. The `+0xe0` vector remains semantically unresolved.
+
+For private PID `45628`, the recovered-project copy had been opened by the coordinating task. A bounded read observed the model and target driver, then a second stable read observed all three instance-vector pointers as zero. See `artifacts/ipc/midi-device-model-45628.json`. Thus no instance was associated with this driver at that observation. This does not distinguish an unparsed CPR record from a failed association or other creation decision, and does not establish that detection ran.
+
+The internal creator's apparent arguments are a driver weak-reference pair in `RCX` and an output weak-reference pair in `RDX`. Five direct call sites occur in four surrounding functions. This evidence is not a supported ABI: its calling thread, subsequent port assignment, mapping activation and complete lifecycle remain unverified. Calling the creator alone risks constructing an incomplete instance and is not a validated initialization route.
+
+### Bounded caller trace
+
+The caller `0x263b7f0` takes three register arguments and returns an empty pair if `[RCX+8]` is null or differs from `R8`; an additional lookup at `0x26276c0` and a driver lookup through `0x1ed2b20` must each yield a non-null object. It then calls a virtual function at slot `+0x28` on the object returned by `0x2672f00` with the driver as argument; only `AL == 1` proceeds to the instance creator. The role of that predicate is not established.
+
+After creation this caller separately iterates pairs in `R8+0x08..+0x10` and `R8+0x20..+0x28`. For each first-list item with two non-null lookup results, it passes the new instance, one weak-reference result, and the second result's `+0x28` field to `0x3140050`; the second list similarly invokes `0x3140450`. Their similarity is consistent with two-direction port setup, but neither their types nor the `+0x28` field's semantic identity is proven here. The caller's entry context, invocation site, thread, post-return activation and ownership still require proof. In particular these observations do not support a test invocation or establish `HostPortName` binding.
+
+The two subsequent routines have matching structure. Each takes the instance weak reference in `RCX`, a two-pointer output in `RDX`, a further argument in `R8`, and a string-like object in `R9`; each locks the instance weak reference, calls a distinct factory (`0x2ff1990` or `0x2ff1d40`), writes the further argument into the new object's `+0x28`, copies the R9 string into `+0x38` with `0x15cbda0`, and inserts a shared reference into the instance's `+0x28` or `+0x40` collection respectively. The `R9` string source is the lookup object's `+0x28`. These are concrete data movements, not proof of the string's `HostPortName` identity, reciprocal host bindings, or the subobject RTTI. Both routines also iterate observer lists and invoke virtual callbacks before and after the operation, which makes isolated field writes or invoking just the instance creator insufficient to reproduce their effects. Host thread and callback lifecycle remain unresolved; a complete non-UI initialization sequence has not been established.

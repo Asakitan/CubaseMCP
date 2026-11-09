@@ -31,6 +31,11 @@ namespace CubaseAiMcp
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         private static extern void virtualMIDIClosePort(IntPtr port);
 
+        [DllImport(Library, ExactSpelling = true, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool virtualMIDIGetProcesses(IntPtr port, [Out] ulong[] processIds, ref uint length);
+
         [DllImport(Library, ExactSpelling = true)]
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         private static extern IntPtr virtualMIDIGetDriverVersion(out ushort major, out ushort minor, out ushort release, out ushort build);
@@ -82,12 +87,36 @@ namespace CubaseAiMcp
             }
         }
 
-        public void Wait(string stopEventName)
+        public ulong[][] GetClientProcessIds()
         {
-            using (EventWaitHandle stop = new EventWaitHandle(false, EventResetMode.ManualReset, stopEventName))
+            if (Interlocked.CompareExchange(ref stopping, 0, 0) != 0)
+                throw new ObjectDisposedException("MidiPortHost");
+            ulong[][] result = new ulong[ports.Count][];
+            for (int i = 0; i < ports.Count; i++)
             {
-                int signal = WaitHandle.WaitAny(new WaitHandle[] { stop, failed });
+                ulong[] processIds = new ulong[17];
+                uint bytes = (uint)(processIds.Length * sizeof(ulong));
+                if (!virtualMIDIGetProcesses(ports[i], processIds, ref bytes))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "MIDI client snapshot failed.");
+                if (bytes > processIds.Length * sizeof(ulong) || bytes % sizeof(ulong) != 0)
+                    throw new InvalidOperationException("MIDI driver returned an invalid client-list length.");
+                Array.Resize(ref processIds, (int)(bytes / sizeof(ulong)));
+                result[i] = processIds;
+            }
+            return result;
+        }
+
+        public void Wait(EventWaitHandle stop, EventWaitHandle inspection, Action inspect)
+        {
+            if (stop == null) throw new ArgumentNullException("stop");
+            if (inspection == null) throw new ArgumentNullException("inspection");
+            if (inspect == null) throw new ArgumentNullException("inspect");
+            while (true)
+            {
+                int signal = WaitHandle.WaitAny(new WaitHandle[] { stop, failed, inspection });
+                if (signal == 0) return;
                 if (signal == 1) throw new InvalidOperationException(failure ?? "MIDI port host failed.");
+                inspect();
             }
         }
 

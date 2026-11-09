@@ -9,16 +9,17 @@ This audit compares the bridge to the installed Cubase 16.0.5 declaration file `
 | Host access and DirectAccess | Four observed roots, object and parameter discovery, guarded parameter writes, plugin collection and slot assignment | Objects and tags must be observed in the active session; host methods and edition features can be unavailable. |
 | Transport | Value bindings, tempo and primary/secondary locator callbacks and setters | Host submission is not playback or persistence evidence. |
 | Selected track | Identity, previous/next actions, channel values, pre-filter, EQ, sends, cue sends, instrument and quick controls | Track feedback is invalidated on identity change; optional expected identity guards writes. Meter values are read-only. |
-| Selected channel strip | `track.strip.{gate,compressor,limiter,saturator,tools}.{on,bypass,automationRead,automationWrite}` | The five `MR_HostStripEffectSlot*` declarations expose these values under `mInsertAndStripEffects.mStripEffects`. Missing branches report unavailable; edit-window controls are deliberately omitted. |
-| Control Room | Root values, main channel, and cue, phones, external input, talkback and monitor channel values | Indexed bindings use the corresponding `getMax*Channels` and `get*ChannelByIndex` methods. Maxima are API limits, not proof of configured channels. Across all five groups, at most 16 indexed channels are bound; a group exceeding the remaining budget reports `HOST_LIMIT_EXCEEDED` without partial admission. Missing branches or values report `API_UNAVAILABLE`. |
+| Selected channel strip | On, bypass, automation, callback identity, eight parameter-bank values and previous/next/reset actions for the five declared strip slots | Missing branches report unavailable; identity callbacks are session/track scoped and edit-window controls are omitted. |
+| Control Room | Root/main/indexed values, source selectors and momentary next-downmix control | Host maxima are limits, not configured channel counts. Indexed channels share a 16-channel budget and selectors share a 64-value budget; oversized groups fail without partial admission. |
+| Mixer bank | Eight fixed bank positions with core channel controls and read-only aggregate meters; fixed previous/next/shift/reset actions | Writes require a previously observed and currently matching channel identity. Action submission does not prove a bank position. See `docs/midi-mixer-bank.md`. |
+| Insert viewers | Fixed all, empty, occupied and host-count-bounded index filters; read-only values, identity callbacks and track-guarded viewer/bank actions | Index filtering and callback attribution remain unverified on a live host; plug-in parameter writes are intentionally withheld. See `docs/midi-insert-viewer.md`. |
 | Focused quick controls | Eight bindings and focus lock | Actual availability comes from the host. |
 | Commands | Fixed command bindings only | A performable binding and submission do not prove the desired project state or disk persistence. |
 
 ## Declared but not implemented
 
-- Control Room indexed source-selection values and the downmix-next action are not bound.
-- `MR_MixerBankZone` configuration, navigation and bank channel bindings are not exposed; current mixer support is DirectAccess discovery and selected-channel controls.
-- `MR_HostInsertEffectViewer`, its slot filters and parameter bank actions, and the strip slots' parameter banks and plugin identity callbacks are not directly exposed as named controls. DirectAccess support does not imply every such object is reachable in a particular edition or project.
+- `MR_MixerBankZone` filtering configuration and bank-channel EQ, sends and plugin slots are not bound; mixer DirectAccess discovery remains separate.
+- Insert viewer on/bypass/automation and parameter writes are not exposed; `mEdit` and focus-following are deliberately omitted. DirectAccess support does not imply every viewer is reachable in a particular edition or project.
 - `MR_MixerChannelValues.getVUChannelMeterByChannelIndex` and `getVUMeterMaxByChannelIndex` are not bound; aggregate meters are exposed read-only. The inspected declarations provide no corresponding selected-channel meter count, so arbitrary indices are not admitted.
 - Mouse-cursor bindings and editor/plugin open controls are intentionally omitted from the background-only surface.
 
@@ -26,4 +27,4 @@ The declarations do not establish a general project creation, MIDI/audio event e
 
 ## Verification
 
-The fixture exercises all 20 strip control keys, an identity-guarded write, the omitted edit key, missing branches, Control Room host maxima, representative bindings, and the indexed-channel admission budget. `node --test tests/remote.test.cjs` passed 37/37. No installed driver or live project was changed by this slice.
+Revision 3 adds fixture checks for selectors, fixed bank actions and strip parameter pages and identity invalidation. See `docs/midi-coverage-3.md` for bounds and remaining gaps. No installed driver or live project was changed by this slice.

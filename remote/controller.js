@@ -11,7 +11,7 @@ var MAX_OBJECTS = 2048;
 var MAX_TAGS = 8192;
 var MAX_PLUGINS = 8192;
 var MAX_INTEGER = 9007199254740991;
-var BRIDGE_REVISION = '2026-11-10-coverage-2';
+var BRIDGE_REVISION = '2026-11-10-coverage-3.3';
 
 function fail(code, message, details, execution) {
     var error = new Error(message);
@@ -66,9 +66,29 @@ function hostBool(value) {
 }
 
 function errorData(error) {
-    var result = { code: error.code || 'HOST_ERROR', message: String(error.message || error) };
-    if (error.details !== undefined) result.details = error.details;
+    var message = String(error.message || error);
+    var result = { code: error.code || 'HOST_ERROR', message: message.slice(0, 512) };
+    if (message.length > 512) result.messageTruncated = true;
+    if (error.details !== undefined) result.details = boundedMetadata(error.details, 0);
     if (error.execution !== undefined) result.execution = error.execution;
+    return result;
+}
+
+function identityField(key) {
+    return /^(?:id|session|root|key|uniqueName|uniqueIdString)$/.test(key || '') ||
+        /(?:Id|ID|Uid|UID)$/.test(key || '');
+}
+
+function boundedMetadata(value, depth, field) {
+    if (typeof value === 'string') return identityField(field) || value.length <= 128 ? value : value.slice(0, 128) + '…';
+    if (value === null || typeof value !== 'object') return value;
+    if (depth >= 4) return '[metadata depth limit]';
+    if (Array.isArray(value)) return value.slice(0, 16).map(function (item) { return boundedMetadata(item, depth + 1, field); });
+    var result = {};
+    Object.keys(value).slice(0, 16).forEach(function (key) {
+        result[identityField(key) ? key : key.slice(0, 128)] = boundedMetadata(value[key], depth + 1, key);
+    });
+    if (Object.keys(value).length > 16) result.metadataTruncated = true;
     return result;
 }
 
@@ -87,7 +107,7 @@ function pageResult(args, page, total, items) {
         total: total, items: items, truncated: next < total, nextOffset: next < total ? next : null };
 }
 
-function createController(api) {
+function createController(api, logger) {
     var driver = invoke(api, 'makeDeviceDriver', ['CubaseAI', 'MCP', 'CubaseAI MCP']);
     var input = invoke(driver.mPorts, 'makeMidiInput', ['CubaseAI MCP To Cubase']);
     var output = invoke(driver.mPorts, 'makeMidiOutput', ['CubaseAI MCP From Cubase']);
@@ -112,6 +132,7 @@ function createController(api) {
     var rootPaths = ['mTrackSelection', 'mMixConsole', 'mTransport', 'mFocusedQuickControls'];
     var controls = Object.create(null);
     var controlGroups = Object.create(null);
+    var bankSlots = [];
     var transportObservation;
     var transportObservationErrors = Object.create(null);
     var observedTrackId = null;
@@ -121,6 +142,17 @@ function createController(api) {
     var malformedFrames = 0;
     var droppedResponses = 0;
     var transportError = null;
+    var loggedInput = false;
+    var loggedDecoded = false;
+    var loggedIdle = false;
+    var loggedOutput = false;
+
+    function trace(stage) {
+        if (logger && typeof logger.log === 'function') logger.log('[CubaseAI MCP] ' + stage);
+    }
+
+    driver.mOnActivate = function () { trace('device activated'); };
+    driver.mOnDeactivate = function () { trace('device deactivated'); };
 
     function version() {
         var value = hostText(invoke(api.mDefaults && api.mDefaults.mAppVersion, 'getVersionString', []));
@@ -492,6 +524,10 @@ function createController(api) {
     }
 
     function admitControlFeedback(record) {
+        if (record.bankIndex !== undefined) {
+            try { bankChannelIdentity(record.bankIndex, false); return true; }
+            catch (error) { markBankError(record.bankIndex, error); return false; }
+        }
         if (record.key.indexOf('track.') !== 0) return true;
         try {
             selectedTrack();
@@ -510,6 +546,7 @@ function createController(api) {
             if (device === activeDevice && activeMapping && !writingSurface && finite(value) && value >= 0 && value <= 1 &&
                 admitControlFeedback(record)) {
                 record.observed = { value: value, revision: ++record.revision };
+                if (record.bankIndex !== undefined) record.observed.channelUniqueId = bankSlots[record.bankIndex].uniqueId;
             }
         };
     }
@@ -527,6 +564,7 @@ function createController(api) {
                 if (device === activeDevice && mapping === activeMapping && finite(value) && value >= 0 && value <= 1 &&
                     admitControlFeedback(record)) {
                     record.observed = { value: value, revision: ++record.revision };
+                    if (record.bankIndex !== undefined) record.observed.channelUniqueId = bankSlots[record.bankIndex].uniqueId;
                 }
             };
             try {
@@ -540,6 +578,19 @@ function createController(api) {
         } catch (error) {
             record.error = errorData(error);
         }
+    }
+
+    function makeActionControl(key, path, action) {
+        var record = { key: key, path: path, momentary: true, readOnly: false, action: true,
+            observed: null, display: null, revision: 0, error: null, feedbackErrors: Object.create(null) };
+        controls[key] = record;
+        try {
+            if (!action) fail('API_UNAVAILABLE', 'Host action is missing: ' + path);
+            surface(record);
+            var binding = invoke(page, 'makeActionBinding', [record.surface, action]);
+            record.binding = invoke(binding, 'filterByValue', [1]);
+            if (!record.binding) fail('API_UNAVAILABLE', 'Filtered action binding was not created: ' + key);
+        } catch (error) { record.error = errorData(error); }
     }
 
     function makeQuickControls(prefix, path, collection) {
@@ -617,6 +668,7 @@ function createController(api) {
 
     function makeControlRoomChannels(room, groupName, countMethod, getMethod, fields, budget) {
         var group = { available: false, count: null };
+        var slots = [];
         controlGroups[groupName] = group;
         try {
             var count = hostCount(invoke(room, countMethod, []));
@@ -630,23 +682,55 @@ function createController(api) {
                 var failure = null;
                 try { object = invoke(room, getMethod, [index]); }
                 catch (error) { failure = errorData(error); }
+                slots.push(object);
                 var prefix = groupName + '.' + index + '.';
                 makeHostFields(prefix, 'mHostAccess.mControlRoom.' + getMethod + '(' + index + ')', object, fields);
                 if (failure) fields.forEach(function (field) { controls[prefix + field[0]].error = failure; });
             }
         } catch (error) { group.error = errorData(error); }
+        return slots;
+    }
+
+    function makeIndexedRoomValues(parent, count, getter, groupName, path, budget) {
+        var group = { available: false, count: count };
+        controlGroups[groupName] = group;
+        try {
+            if (!integer(count, 0, MAX_INTEGER)) fail('API_UNAVAILABLE', 'Host maximum is unavailable for ' + groupName);
+            if (count > budget.remaining) fail('HOST_LIMIT_EXCEEDED', 'Control Room selector maxima exceed the bridge binding budget.', { count: count, remaining: budget.remaining });
+            method(parent, getter);
+            budget.remaining -= count;
+            group.available = true;
+            for (var index = 0; index < count; index++) {
+                var value = null;
+                var error = null;
+                try { value = invoke(parent, getter, [index]); }
+                catch (exception) { error = errorData(exception); }
+                var key = groupName + '.' + index;
+                makeControl(key, path + '.' + getter + '(' + index + ')', value, false);
+                if (error) controls[key].error = error;
+            }
+        } catch (exception) { group.error = errorData(exception); }
     }
 
     function controlInfo(record) {
         var result = { key: record.key, path: record.path, momentary: record.momentary,
             readOnly: record.readOnly, available: !record.error && !!activeMapping,
             observed: record.observed, display: record.display };
+        if (record.bankIndex !== undefined) {
+            var slot = bankSlots[record.bankIndex];
+            result.channel = { index: record.bankIndex, uniqueId: slot.uniqueId, runtimeId: slot.runtimeId };
+            if (!slot.uniqueId) {
+                result.available = false;
+                var group = controlGroups['mixer.channel.' + record.bankIndex];
+                if (!record.error && group && group.error) result.error = group.error;
+            }
+        }
         if (record.error) result.error = record.error;
         if (Object.keys(record.feedbackErrors).length) result.feedbackErrors = record.feedbackErrors;
         return result;
     }
 
-    function controlList() {
+    function controlList(args) {
         if (activeMapping) {
             try {
                 var current = selectedTrack();
@@ -657,13 +741,40 @@ function createController(api) {
                 controlGroups['track.identity'] = { available: false, error: errorData(error) };
             }
         }
-        return Object.keys(controls).map(function (key) { return controlInfo(controls[key]); });
+        var offset = args.offset === undefined ? 0 : args.offset;
+        var limit = args.limit === undefined ? 16 : args.limit;
+        var groupOffset = args.groupOffset === undefined ? 0 : args.groupOffset;
+        var groupLimit = args.groupLimit === undefined ? 16 : args.groupLimit;
+        if (!integer(offset, 0, MAX_INTEGER) || !integer(groupOffset, 0, MAX_INTEGER) ||
+            !integer(limit, 1, 16) || !integer(groupLimit, 1, 16)) {
+            fail('INVALID_ARGUMENT', 'Offsets must be nonnegative and limits must be in [1, 16].');
+        }
+        var keys = Object.keys(controls), groupKeys = Object.keys(controlGroups), groups = {};
+        keys.slice(offset, offset + limit).forEach(function (key) {
+            if (controls[key].bankIndex !== undefined) {
+                try { bankChannelIdentity(controls[key].bankIndex, true); } catch (error) { markBankError(controls[key].bankIndex, error); }
+            }
+        });
+        groupKeys.slice(groupOffset, groupOffset + groupLimit).forEach(function (key) {
+            var match = /^mixer\.channel\.(\d+)$/.exec(key);
+            if (match) { try { bankChannelIdentity(Number(match[1]), true); } catch (error) { markBankError(Number(match[1]), error); } }
+        });
+        var items = keys.slice(offset, offset + limit).map(function (key) { return boundedMetadata(controlInfo(controls[key]), 0); });
+        groupKeys.slice(groupOffset, groupOffset + groupLimit).forEach(function (key) {
+            groups[key] = boundedMetadata(controlGroups[key], 0);
+        });
+        var next = Math.min(keys.length, offset + items.length);
+        var nextGroup = Math.min(groupKeys.length, groupOffset + Object.keys(groups).length);
+        return { session: session, controls: items, groups: groups, offset: offset, limit: limit, total: keys.length,
+            nextOffset: next < keys.length ? next : null, groupOffset: groupOffset, groupLimit: groupLimit,
+            groupTotal: groupKeys.length, nextGroupOffset: nextGroup < groupKeys.length ? nextGroup : null };
     }
 
     function controlsGet(args) {
         if (typeof args.key !== 'string' || !controls[args.key]) fail('INVALID_CONTROL', 'Unknown control key.');
         if (args.key.indexOf('track.') === 0) selectedTrack();
-        return { session: session, control: controlInfo(controls[args.key]) };
+        if (controls[args.key].bankIndex !== undefined) bankChannelIdentity(controls[args.key].bankIndex, true);
+        return { session: session, control: boundedMetadata(controlInfo(controls[args.key]), 0) };
     }
 
     function commandList() {
@@ -701,6 +812,9 @@ function createController(api) {
         if (record.error) fail(record.error.code, record.error.message, record.error.details);
         if (record.readOnly) fail('READ_ONLY', 'This control only exposes host feedback.');
         var currentTrack = args.key.indexOf('track.') === 0 ? selectedTrack() : null;
+        if (args.key.indexOf('track.insert.') === 0 && args.expectedTrackUniqueId === undefined) {
+            fail('CONFIRMATION_REQUIRED', 'Insert viewer actions require expectedTrackUniqueId.');
+        }
         if (args.expectedTrackUniqueId !== undefined) {
             if (!currentTrack || typeof args.expectedTrackUniqueId !== 'string' || !args.expectedTrackUniqueId) {
                 fail('INVALID_ARGUMENT', 'expectedTrackUniqueId is only valid for a track control.');
@@ -710,10 +824,30 @@ function createController(api) {
                     { currentUniqueId: currentTrack.uniqueId });
             }
         }
+        if (record.bankIndex !== undefined) {
+            if (typeof args.expectedChannelUniqueId !== 'string' || !args.expectedChannelUniqueId) {
+                fail('CONFIRMATION_REQUIRED', 'Bank-channel writes require the previously observed expectedChannelUniqueId.');
+            }
+            var slot = bankSlots[record.bankIndex];
+            if (!slot || !slot.admitted || slot.uniqueId !== args.expectedChannelUniqueId) {
+                fail('CHANNEL_UNOBSERVED', 'Read the current bank channel before writing.');
+            }
+            var currentChannel;
+            try { currentChannel = bankChannelIdentity(record.bankIndex, false); }
+            catch (error) { markBankError(record.bankIndex, error); throw error; }
+            if (!slot.admitted || currentChannel.uniqueId !== args.expectedChannelUniqueId) {
+                fail('CHANNEL_CHANGED', 'The bank channel changed before the control write.', { currentUniqueId: currentChannel.uniqueId });
+            }
+        } else if (args.expectedChannelUniqueId !== undefined) {
+            fail('INVALID_ARGUMENT', 'expectedChannelUniqueId is only valid for a bank-channel control.');
+        }
         var value = normalized(args.value);
+        if (record.action && value !== 1) fail('INVALID_VALUE', 'Action controls require value 1.');
         method(record.surface, 'setProcessValue');
         var before = record.observed;
         return submitted(function () {
+            if (record.action && args.key.indexOf('track.') === 0) clearTrackObservation();
+            if (record.action && args.key.indexOf('mixer.bank.') === 0) clearBankObservations();
             setSurface(record, value, record.momentary);
             return receipt(request, { key: args.key, requestedValue: value, before: before, after: record.observed });
         });
@@ -741,6 +875,49 @@ function createController(api) {
                 controls[key].display = null;
             }
         });
+        Object.keys(controlGroups).forEach(function (key) {
+            if (key.indexOf('track.') === 0 && Object.prototype.hasOwnProperty.call(controlGroups[key], 'pluginIdentity')) {
+                controlGroups[key].pluginIdentity = null;
+            }
+        });
+    }
+
+    function clearBankSlot(index) {
+        var slot = bankSlots[index];
+        if (!slot) return;
+        slot.uniqueId = null; slot.runtimeId = null; slot.admitted = false;
+        Object.keys(controls).forEach(function (key) {
+            if (controls[key].bankIndex === index) { controls[key].observed = null; controls[key].display = null; }
+        });
+        if (controlGroups['mixer.channel.' + index]) {
+            controlGroups['mixer.channel.' + index].available = false;
+            controlGroups['mixer.channel.' + index].uniqueId = null;
+            controlGroups['mixer.channel.' + index].runtimeId = null;
+            delete controlGroups['mixer.channel.' + index].error;
+        }
+    }
+
+    function markBankError(index, error) {
+        clearBankSlot(index);
+        if (controlGroups['mixer.channel.' + index]) controlGroups['mixer.channel.' + index].error = errorData(error);
+    }
+
+    function clearBankObservations() { bankSlots.forEach(function (slot, index) { clearBankSlot(index); }); }
+
+    function bankChannelIdentity(index, admit) {
+        var slot = bankSlots[index];
+        if (!slot || !slot.channel) fail('API_UNAVAILABLE', 'Bank channel is unavailable.');
+        var id = hostText(invoke(slot.channel, 'getUniqueIDString', [activeMapping]));
+        if (!id) { clearBankSlot(index); fail('NO_CHANNEL', 'Cubase did not report an identity for this bank slot.'); }
+        var runtimeId = hostCount(invoke(slot.channel, 'getRuntimeID', [activeMapping]));
+        if (slot.uniqueId !== null && (slot.uniqueId !== id || slot.runtimeId !== runtimeId)) clearBankSlot(index);
+        slot.uniqueId = id; slot.runtimeId = runtimeId;
+        if (admit) slot.admitted = true;
+        var group = controlGroups['mixer.channel.' + index];
+        group.available = true;
+        delete group.error;
+        group.uniqueId = id; group.runtimeId = runtimeId;
+        return { uniqueId: id, runtimeId: runtimeId };
     }
 
     function selectedTrack() {
@@ -827,7 +1004,10 @@ function createController(api) {
     }
 
     function transportGet() {
-        return { session: session, observed: transportObservation, errors: transportObservationErrors };
+        var result = { session: session, observed: transportObservation, errors: transportObservationErrors };
+        try { result.features = timeFeatures(); }
+        catch (error) { result.features = null; result.featureError = errorData(error); }
+        return result;
     }
 
     function transportTempo(request, args) {
@@ -869,33 +1049,16 @@ function createController(api) {
 
     function status() {
         var appVersion = version();
-        var transportFeatures = timeFeatures();
-        var descriptions = rootNames.map(function (key) {
-            var root = roots[key];
-            var result = { key: key, path: 'mHostAccess.' + root.path, available: false };
-            try {
-                refresh(root);
-                result.object = observeObject(root, root.base);
-                result.baseObjectId = root.base;
-                result.available = true;
-            } catch (error) {
-                result.error = errorData(error);
-                result.error.details = { stage: root.stage, stack: error.stack ? String(error.stack) : null };
-            }
-            return result;
-        });
         return { session: session, appVersion: appVersion, bridgeRevision: BRIDGE_REVISION, active: !!activeMapping,
             policy: { backgroundOnly: true, fallback: false },
             features: { directAccess: !!host && typeof host.makeDirectAccess === 'function',
                 valueBindings: typeof page.makeValueBinding === 'function',
-                commandBindings: typeof page.makeCommandBinding === 'function',
-                tempo: transportFeatures.tempo, time: transportFeatures.time,
-                roots: descriptions.map(function (description) { return { key: description.key, available: description.available }; }) },
-            roots: descriptions, controls: controlList(), controlGroups: controlGroups,
-            transportObservation: transportObservation, commands: commandList(),
+                commandBindings: typeof page.makeCommandBinding === 'function' },
+            discovery: { controlsOperation: 'controls.list', rootsOperation: 'objects.list', commandsOperation: 'commands.list',
+                controlTotal: Object.keys(controls).length, groupTotal: Object.keys(controlGroups).length,
+                maximumPageSize: 16 },
             limits: { requests: MAX_REQUESTS, trackedIds: MAX_IDS, outputFrames: MAX_FRAMES,
-                framesPerIdle: FRAMES_PER_IDLE, objectsPerRoot: MAX_OBJECTS, tagsPerRoot: MAX_TAGS, pluginsPerRoot: MAX_PLUGINS },
-            diagnostics: { malformedFrames: malformedFrames, droppedResponses: droppedResponses, transportError: transportError } };
+                framesPerIdle: FRAMES_PER_IDLE, objectsPerRoot: MAX_OBJECTS, tagsPerRoot: MAX_TAGS, pluginsPerRoot: MAX_PLUGINS } };
     }
 
     function dispatch(request) {
@@ -917,7 +1080,7 @@ function createController(api) {
         if (request.op === 'parameters.set') return parametersSet(request, args);
         if (request.op === 'plugins.list') return pluginsList(args);
         if (request.op === 'plugins.set') return pluginsSet(request, args);
-        if (request.op === 'controls.list') return { session: session, controls: controlList(), groups: controlGroups };
+        if (request.op === 'controls.list') return controlList(args);
         if (request.op === 'controls.get') return controlsGet(args);
         if (request.op === 'controls.set') return controlsSet(request, args);
         if (request.op === 'commands.list') return { session: session, commands: commandList() };
@@ -952,6 +1115,10 @@ function createController(api) {
     }
 
     input.mOnSysex = function (device, bytes) {
+        if (!loggedInput) {
+            loggedInput = true;
+            trace('first MIDI input: matching device=' + (device === activeDevice));
+        }
         if (device !== activeDevice) return;
         var request;
         try {
@@ -961,6 +1128,7 @@ function createController(api) {
             return;
         }
         if (!request) return;
+        if (!loggedDecoded) { loggedDecoded = true; trace('first request decoded'); }
         if (seen[request.id]) return rejection(request.id, 'DUPLICATE_ID', 'This request ID was already admitted; it will not be executed again.');
         if (seenCount >= MAX_IDS) return rejection(request.id, 'REQUEST_LIMIT', 'Request ID tracking is full; reactivate the mapping page.');
         seen[request.id] = true;
@@ -970,6 +1138,11 @@ function createController(api) {
     };
 
     page.mOnActivate = function (device, mapping) {
+        trace('mapping activated');
+        loggedInput = false;
+        loggedDecoded = false;
+        loggedIdle = false;
+        loggedOutput = false;
         activeDevice = device;
         activeMapping = mapping;
         session = instance + '-' + (++generation);
@@ -979,6 +1152,8 @@ function createController(api) {
         seen = Object.create(null);
         seenCount = 0;
         observedTrackId = null;
+        clearTrackObservation();
+        clearBankObservations();
         clearTransportObservation();
         Object.keys(controls).forEach(function (key) {
             controls[key].observed = null; controls[key].display = null; controls[key].revision = 0;
@@ -1003,6 +1178,7 @@ function createController(api) {
 
     page.mOnDeactivate = function (device, mapping) {
         if (device !== activeDevice || mapping !== activeMapping) return;
+        trace('mapping deactivated');
         rootNames.forEach(function (key) {
             var root = roots[key];
             if (root.active) {
@@ -1018,11 +1194,17 @@ function createController(api) {
         outbound = [];
         decoder.reset();
         observedTrackId = null;
+        clearTrackObservation();
+        clearBankObservations();
         clearTransportObservation();
         Object.keys(controls).forEach(function (key) { controls[key].observed = null; controls[key].display = null; });
     };
 
     page.mOnIdle = function (device, mapping) {
+        if (!loggedIdle) {
+            loggedIdle = true;
+            trace('first idle: matching device=' + (device === activeDevice) + ', mapping=' + (mapping === activeMapping));
+        }
         if (device !== activeDevice || mapping !== activeMapping || inIdle) return;
         inIdle = true;
         try {
@@ -1035,7 +1217,10 @@ function createController(api) {
             }
             for (var index = 0; index < FRAMES_PER_IDLE && outbound.length; index++) {
                 var frame = outbound.shift();
-                try { output.sendMidi(device, frame); }
+                try {
+                    output.sendMidi(device, frame);
+                    if (!loggedOutput) { loggedOutput = true; trace('first response frame sent'); }
+                }
                 catch (error) { transportError = String(error.message || error); outbound = []; break; }
             }
         } finally {
@@ -1044,7 +1229,9 @@ function createController(api) {
     };
 
     rootNames.forEach(function (key, index) { makeRoot(key, rootPaths[index]); });
-    var transport = host && host.mTransport && host.mTransport.mValue;
+    var transport = null;
+    try { transport = host && host.mTransport && host.mTransport.mValue; }
+    catch (error) { controlGroups.transport = { available: false, error: errorData(error) }; }
     var transportNames = ['start', 'stop', 'record', 'rewind', 'forward', 'cycle', 'metronome'];
     var transportValues = ['mStart', 'mStop', 'mRecord', 'mRewind', 'mForward', 'mCycleActive', 'mMetronomeActive'];
     transportNames.forEach(function (name, index) {
@@ -1053,7 +1240,9 @@ function createController(api) {
     });
     makeHostFields('transport.', 'mHostAccess.mTransport.mValue', transport,
         [['metronomeLevel', 'mMetronomeClickLevel']]);
-    var channel = host && host.mTrackSelection && host.mTrackSelection.mMixerChannel;
+    var channel = null;
+    try { channel = host && host.mTrackSelection && host.mTrackSelection.mMixerChannel; }
+    catch (error) { controlGroups['track.channel'] = { available: false, error: errorData(error) }; }
     var channelValues = channel && channel.mValue;
     ['volume', 'pan', 'mute', 'solo', 'recordEnable', 'monitorEnable', 'automationRead', 'automationWrite'].forEach(function (name) {
         var field = 'm' + name.charAt(0).toUpperCase() + name.slice(1);
@@ -1087,10 +1276,104 @@ function createController(api) {
     [['gate', 'mGate'], ['compressor', 'mCompressor'], ['limiter', 'mLimiter'],
         ['saturator', 'mSaturator'], ['tools', 'mTools']].forEach(function (entry) {
         var group = 'track.strip.' + entry[0];
+        var slot = hostBranch(strip, entry[1], group);
         makeHostFields(group + '.', 'mHostAccess.mTrackSelection.mMixerChannel.mInsertAndStripEffects.mStripEffects.' + entry[1],
-            hostBranch(strip, entry[1], group),
+            slot,
             [['on', 'mOn'], ['bypass', 'mBypass'], ['automationRead', 'mAutomationRead'], ['automationWrite', 'mAutomationWrite']]);
+        if (!slot) return;
+        controlGroups[group].pluginIdentity = null;
+        try {
+            slot.mOnChangePluginIdentity = function (device, mapping, name, vendor, version, format) {
+                if (device !== activeDevice || mapping !== activeMapping ||
+                    typeof name !== 'string' || typeof vendor !== 'string' || typeof version !== 'string' || typeof format !== 'string' ||
+                    name.length > 4096 || vendor.length > 4096 || version.length > 4096 || format.length > 4096) return;
+                try {
+                    var current = selectedTrack();
+                    controlGroups[group].pluginIdentity = { name: name, vendor: vendor, version: version,
+                        formatVersion: format, trackUniqueId: current.uniqueId };
+                } catch (error) { clearTrackObservation(); }
+            };
+        } catch (error) { controlGroups[group].identityError = errorData(error); }
+        var bank = hostBranch(slot, 'mParameterBankZone', group + '.bank');
+        if (!bank) return;
+        for (var parameterIndex = 0; parameterIndex < 8; parameterIndex++) {
+            var parameter = null;
+            var failure = null;
+            try { parameter = invoke(bank, 'makeParameterValue', []); }
+            catch (error) { failure = errorData(error); }
+            var key = group + '.parameter.' + parameterIndex;
+            makeControl(key, group + '.mParameterBankZone.makeParameterValue(' + parameterIndex + ')', parameter, false);
+            if (failure) controls[key].error = failure;
+        }
+        [['previous', 'mPrevBank'], ['next', 'mNextBank'], ['reset', 'mResetBank']].forEach(function (actionEntry) {
+            var action = null;
+            try { action = bank.mAction && bank.mAction[actionEntry[1]]; } catch (ignored) {}
+            makeActionControl(group + '.bank.' + actionEntry[0], group + '.mParameterBankZone.mAction.' + actionEntry[1], action);
+        });
     });
+    function makeInsertViewer(name, filter, index) {
+        var group = 'track.insert.' + name;
+        var path = 'mHostAccess.mTrackSelection.mMixerChannel.mInsertAndStripEffects.makeInsertEffectViewer(' + name + ')';
+        var viewer;
+        try {
+            viewer = invoke(effects, 'makeInsertEffectViewer', ['CubaseAI MCP ' + name]);
+            if (!viewer) fail('API_UNAVAILABLE', 'Insert viewer was not created: ' + name);
+            if (filter === 'empty') viewer = invoke(viewer, 'includeEmptySlotsOnly', []);
+            else if (filter === 'occupied') viewer = invoke(viewer, 'excludeEmptySlots', []);
+            else if (filter === 'slot') viewer = invoke(viewer, 'accessSlotAtIndex', [index]);
+            if (!viewer) fail('API_UNAVAILABLE', 'Insert viewer filter returned no object: ' + name);
+            controlGroups[group] = { available: true, filter: filter, index: index, pluginIdentity: null };
+        } catch (error) {
+            controlGroups[group] = { available: false, filter: filter, index: index, error: errorData(error) };
+            return;
+        }
+        makeHostFields(group + '.', path, viewer,
+            [['on', 'mOn'], ['bypass', 'mBypass'], ['automationRead', 'mAutomationRead'], ['automationWrite', 'mAutomationWrite']], true);
+        try {
+            viewer.mOnChangePluginIdentity = function (device, mapping, pluginName, vendor, version, format) {
+                if (device !== activeDevice || mapping !== activeMapping ||
+                    typeof pluginName !== 'string' || typeof vendor !== 'string' || typeof version !== 'string' || typeof format !== 'string' ||
+                    pluginName.length > 4096 || vendor.length > 4096 || version.length > 4096 || format.length > 4096) return;
+                try {
+                    var current = selectedTrack();
+                    controlGroups[group].pluginIdentity = { name: pluginName, vendor: vendor, version: version,
+                        formatVersion: format, trackUniqueId: current.uniqueId };
+                } catch (error) { clearTrackObservation(); }
+            };
+        } catch (error) { controlGroups[group].identityError = errorData(error); }
+        [['previous', 'mPrev'], ['next', 'mNext'], ['reset', 'mReset']].forEach(function (entry) {
+            var action = null;
+            try { action = viewer.mAction && viewer.mAction[entry[1]]; } catch (ignored) {}
+            makeActionControl(group + '.viewer.' + entry[0], path + '.mAction.' + entry[1], action);
+        });
+        var bank = hostBranch(viewer, 'mParameterBankZone', group + '.bank');
+        if (!bank) return;
+        for (var i = 0; i < 8; i++) {
+            var value = null, failure = null;
+            try { value = invoke(bank, 'makeParameterValue', []); } catch (error) { failure = errorData(error); }
+            var key = group + '.parameter.' + i;
+            makeControl(key, path + '.mParameterBankZone.makeParameterValue(' + i + ')', value, false, true);
+            if (failure) controls[key].error = failure;
+        }
+        [['previous', 'mPrevBank'], ['next', 'mNextBank'], ['reset', 'mResetBank']].forEach(function (entry) {
+            var action = null;
+            try { action = bank.mAction && bank.mAction[entry[1]]; } catch (ignored) {}
+            makeActionControl(group + '.bank.' + entry[0], path + '.mParameterBankZone.mAction.' + entry[1], action);
+        });
+    }
+    if (effects) {
+        makeInsertViewer('all', 'all', null);
+        makeInsertViewer('empty', 'empty', null);
+        makeInsertViewer('occupied', 'occupied', null);
+        try {
+            var insertCount = hostCount(invoke(api.mDefaults, 'getNumberOfInsertEffectSlots', []));
+            if (insertCount > 16) fail('HOST_LIMIT_EXCEEDED', 'Insert slot maximum exceeds the viewer budget.', { count: insertCount });
+            controlGroups['track.insert.slots'] = { available: true, count: insertCount };
+            for (var insertIndex = 0; insertIndex < insertCount; insertIndex++) makeInsertViewer('slot.' + insertIndex, 'slot', insertIndex);
+        } catch (error) { controlGroups['track.insert.slots'] = { available: false, error: errorData(error) }; }
+    } else {
+        controlGroups['track.insert.slots'] = { available: false, error: { code: 'API_UNAVAILABLE', message: 'Insert effects branch is unavailable.' } };
+    }
     clearTransportObservation();
     setupTransportObservation();
     makeQuickControls('track.quick.', 'mHostAccess.mTrackSelection.mMixerChannel.mQuickControls', channel && channel.mQuickControls);
@@ -1102,6 +1385,9 @@ function createController(api) {
         [['alertDimActive', 'mAlertDimActiveValue'], ['talkbackActive', 'mTalkbackActiveValue'],
          ['talkbackDimLevel', 'mTalkbackDimLevelValue'], ['listenDimLevel', 'mListenDimLevelValue'],
          ['referenceLevel', 'mReferenceLevelValue']]);
+    var downmix = null;
+    try { downmix = room && room.mSelectNextDownmixPresetValue; } catch (ignored) {}
+    makeControl('controlRoom.nextDownmix', 'mHostAccess.mControlRoom.mSelectNextDownmixPresetValue', downmix, true);
     var roomMainFields = [['level', 'mLevelValue'], ['mute', 'mMuteValue'], ['bypassInserts', 'mBypassInserts'],
         ['sourceMonitorMix', 'mSelectSourceMonitorMixValue'], ['sourceExternalInput', 'mSelectSourceExternalInputValue'],
         ['listenEnabled', 'mListenEnabledValue'], ['listenLevel', 'mListenLevelValue'], ['dimActive', 'mDimActiveValue'],
@@ -1118,10 +1404,63 @@ function createController(api) {
         ['metronomePan', 'mMetronomeClickPanValue']]);
     var roomBudget = { remaining: 16 };
     makeControlRoomChannels(room, 'controlRoom.cue', 'getMaxCueChannels', 'getCueChannelByIndex', cueFields, roomBudget);
-    makeControlRoomChannels(room, 'controlRoom.phones', 'getMaxPhonesChannels', 'getPhonesChannelByIndex', roomMainFields, roomBudget);
+    var phonesSlots = makeControlRoomChannels(room, 'controlRoom.phones', 'getMaxPhonesChannels', 'getPhonesChannelByIndex', roomMainFields, roomBudget);
     makeControlRoomChannels(room, 'controlRoom.externalInput', 'getMaxExternalInputChannels', 'getExternalInputChannelByIndex', basicRoomFields, roomBudget);
     makeControlRoomChannels(room, 'controlRoom.talkback', 'getMaxTalkbackChannels', 'getTalkbackChannelByIndex', basicRoomFields, roomBudget);
     makeControlRoomChannels(room, 'controlRoom.monitor', 'getMaxMonitorChannels', 'getMonitorChannelByIndex', basicRoomFields, roomBudget);
+    var selectorBudget = { remaining: 64 };
+    var cueCount = controlGroups['controlRoom.cue'].count;
+    makeIndexedRoomValues(room, controlGroups['controlRoom.externalInput'].count, 'getSelectSourceExternalInputValueByIndex',
+        'controlRoom.sourceExternalInput', 'mHostAccess.mControlRoom', selectorBudget);
+    makeIndexedRoomValues(room, controlGroups['controlRoom.monitor'].count, 'getSelectTargetMonitorValueByIndex',
+        'controlRoom.targetMonitor', 'mHostAccess.mControlRoom', selectorBudget);
+    makeIndexedRoomValues(main, cueCount, 'getSelectSourceCueValueByIndex',
+        'controlRoom.main.sourceCue', 'mHostAccess.mControlRoom.mMainChannel', selectorBudget);
+    phonesSlots.forEach(function (phone, index) {
+        makeIndexedRoomValues(phone, cueCount, 'getSelectSourceCueValueByIndex',
+            'controlRoom.phones.' + index + '.sourceCue',
+            'mHostAccess.mControlRoom.getPhonesChannelByIndex(' + index + ')', selectorBudget);
+    });
+    var mixerBank = null;
+    try {
+        mixerBank = invoke(host && host.mMixConsole, 'makeMixerBankZone', ['CubaseAI MCP']);
+        controlGroups['mixer.bank'] = { available: !!mixerBank };
+    } catch (error) { controlGroups['mixer.bank'] = { available: false, error: errorData(error) }; }
+    [['previous', 'mPrevBank'], ['next', 'mNextBank'], ['left', 'mShiftLeft'],
+        ['right', 'mShiftRight'], ['reset', 'mResetBank']].forEach(function (entry) {
+        var action = null;
+        try { action = mixerBank && mixerBank.mAction && mixerBank.mAction[entry[1]]; } catch (ignored) {}
+        makeActionControl('mixer.bank.' + entry[0], 'mHostAccess.mMixConsole.makeMixerBankZone().mAction.' + entry[1],
+            action);
+    });
+    if (mixerBank) {
+        for (var bankIndex = 0; bankIndex < 8; bankIndex++) {
+            var bankChannel = null, channelError = null;
+            try {
+                bankChannel = invoke(mixerBank, 'makeMixerBankChannel', []);
+                if (!bankChannel) fail('API_UNAVAILABLE', 'Mixer bank channel was not created.');
+            } catch (error) { channelError = errorData(error); }
+            bankSlots[bankIndex] = { channel: bankChannel, uniqueId: null, runtimeId: null, admitted: false };
+            var channelGroup = 'mixer.channel.' + bankIndex;
+            controlGroups[channelGroup] = { available: false, uniqueId: null, runtimeId: null };
+            if (channelError) controlGroups[channelGroup].error = channelError;
+            var values = null;
+            try { values = bankChannel && bankChannel.mValue; } catch (error) { channelError = errorData(error); }
+            var bankFields = [['volume', 'mVolume'], ['pan', 'mPan'], ['mute', 'mMute'], ['solo', 'mSolo'],
+                ['recordEnable', 'mRecordEnable'], ['monitorEnable', 'mMonitorEnable'],
+                ['automationRead', 'mAutomationRead'], ['automationWrite', 'mAutomationWrite'],
+                ['meter.level', 'mVUMeter'], ['meter.maximum', 'mVUMeterMax'],
+                ['meter.clip', 'mVUMeterClip'], ['meter.peak', 'mVUMeterPeak']];
+            bankFields.forEach(function (field) {
+                var key = channelGroup + '.' + field[0], hostValue = null, failure = channelError;
+                try { if (values) hostValue = values[field[1]]; } catch (error) { failure = errorData(error); }
+                makeControl(key, 'mHostAccess.mMixConsole.makeMixerBankZone().makeMixerBankChannel(' + bankIndex + ').mValue.' + field[1],
+                    hostValue, false, field[0].indexOf('meter.') === 0);
+                controls[key].bankIndex = bankIndex;
+                if (failure) controls[key].error = failure;
+            });
+        }
+    }
     commandDefinitions.forEach(function (definition) {
         var record = { key: 'command.' + definition.key, definition: definition, error: null, revision: 0 };
         commands[definition.key] = record;
@@ -1134,6 +1473,7 @@ function createController(api) {
             record.error = errorData(error);
         }
     });
+    trace('controller constructed ' + BRIDGE_REVISION);
     return { deviceDriver: driver, page: page, midiInput: input, midiOutput: output };
 }
 
