@@ -12,3 +12,4 @@
 | [08](session-08.md) | 2026-11-10 | Repair isolated startup, deploy coverage 3.3 and investigate native project and MIDI activation paths. |
 | [09](session-09.md) | 2026-11-10 | Observe MIDI Remote host-port model and trace the loaded DAWproject filter. |
 | [10](session-10.md) | 2026-11-10 | Trace isolated startup ordering and investigate lifecycle routing and dispatch. |
+| [11](session-11.md) | 2026-11-10 | Extend guarded mixer-bank controls and trace project activation event sources. |

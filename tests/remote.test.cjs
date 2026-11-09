@@ -18,7 +18,7 @@ test('large host maxima and error messages preserve compact handshake and bounde
         page.makeValueBinding = () => { throw new Error('unavailable-' + 'x'.repeat(5000)); };
     });
     assert.equal(harness.status.ok, true, JSON.stringify(harness.status));
-    assert.equal(harness.status.data.bridgeRevision, '2026-11-10-coverage-3.3');
+    assert.equal(harness.status.data.bridgeRevision, '2026-11-10-coverage-3.4');
     let offset = 0;
     const keys = [];
     do {
@@ -190,7 +190,7 @@ test('mixer bank slots require observed identity and invalidate feedback on navi
             return { mAction: { mPrevBank: {}, mNextBank: {}, mShiftLeft: {}, mShiftRight: {}, mResetBank: {} },
                 makeMixerBankChannel() {
                     const slot = index++;
-                    const v = Object.fromEntries(['mVolume', 'mPan', 'mMute', 'mSolo', 'mRecordEnable', 'mMonitorEnable',
+                    const v = Object.fromEntries(['mVolume', 'mPan', 'mMute', 'mSolo', 'mRecordEnable', 'mMonitorEnable', 'mSelected',
                         'mAutomationRead', 'mAutomationWrite', 'mVUMeter', 'mVUMeterMax', 'mVUMeterClip', 'mVUMeterPeak'].map(name => [name, {}]));
                     values[slot] = v;
                     return { mValue: v, getUniqueIDString: () => ids[slot], getRuntimeID: () => slot + 100 };
@@ -204,6 +204,11 @@ test('mixer bank slots require observed identity and invalidate feedback on navi
     values[0].mVolume.mOnProcessValueChange(harness.device, harness.currentMapping(), 0.6);
     assert.equal(harness.call('controls.get', { key }).data.control.observed.channelUniqueId, ids[0]);
     assert.equal(harness.call('controls.set', { key, value: 0.5, expectedChannelUniqueId: ids[0] }).data.execution, 'submitted');
+    harness.emit('track.volume', 0.8);
+    assert.equal(harness.call('controls.get', { key: 'track.volume' }).data.control.observed.value, 0.8);
+    assert.equal(harness.call('controls.set', { key: 'mixer.channel.0.selected', value: 1,
+        expectedChannelUniqueId: ids[0] }).data.execution, 'submitted');
+    assert.equal(harness.call('controls.get', { key: 'track.volume' }).data.control.observed, null);
     expectError(harness.call('controls.set', { key: 'mixer.channel.0.meter.level', value: 1, expectedChannelUniqueId: ids[0] }), 'READ_ONLY');
     ids[0] = 'bank-new';
     expectError(harness.call('controls.set', { key, value: 0.5, expectedChannelUniqueId: 'bank-track-0' }), 'CHANNEL_CHANGED');
@@ -215,6 +220,90 @@ test('mixer bank slots require observed identity and invalidate feedback on navi
     harness.deactivate();
     harness.activate();
     expectError(harness.call('controls.set', { key, value: 0.5, expectedChannelUniqueId: 'bank-new' }), 'STALE_SESSION');
+});
+
+test('bank EQ, filter and sends stay bound to observed channel identities', () => {
+    const ids = Array.from({ length: 8 }, (_, i) => `id-${i}`), slots = [];
+    const harness = fixture((api, state, { host }) => {
+        host.mMixConsole.makeMixerBankZone = () => {
+            let index = 0;
+            return { makeMixerBankChannel() {
+                const i = index++, band = () => ({ mGain: {}, mFreq: {}, mQ: {}, mOn: {}, mFilterType: {} });
+                const slot = { mValue: {}, getUniqueIDString: () => ids[i], getRuntimeID: () => i,
+                    mPreFilter: { mGain: {} }, mChannelEQ: { mBand1: band(), mBand2: band(), mBand3: band(), mBand4: band() },
+                    mSends: { getSize: () => 1, getByIndex: n => { assert.equal(n, 0); return { mLevel: {} }; } },
+                    mCueSends: { mBypass: {}, getSize: () => 1, getByIndex: n => { assert.equal(n, 0); return { mPan: {} }; } },
+                    mQuickControls: { getSize: () => 8, getByIndex: () => ({}) },
+                    mInstrumentPluginSlot: { mBypass: {} },
+                    mInsertAndStripEffects: { mStripEffects: { mGate: { mOn: {} }, mTools: { mAutomationWrite: {} } } } };
+                slots.push(slot); return slot;
+            } };
+        };
+    });
+    expectError(harness.call('controls.set', { key: 'mixer.channel.0.filter.gain', value: 0.5, expectedChannelUniqueId: ids[0] }), 'CHANNEL_UNOBSERVED');
+    for (const key of ['mixer.channel.0.filter.gain', 'mixer.channel.0.eq.1.gain',
+        'mixer.channel.0.send.0.level', 'mixer.channel.0.cueSend.0.pan', 'mixer.channel.0.cueSend.bypass',
+        'mixer.channel.0.quick.7', 'mixer.channel.0.instrument.bypass',
+        'mixer.channel.0.strip.gate.on', 'mixer.channel.0.strip.tools.automationWrite']) {
+        assert.equal(harness.call('controls.get', { key }).data.control.available, true);
+        assert.equal(harness.call('controls.set', { key, value: 0.5, expectedChannelUniqueId: ids[0] }).data.execution, 'submitted');
+    }
+    slots[0].mChannelEQ.mBand1.mGain.mOnProcessValueChange(harness.device, harness.currentMapping(), 0.4);
+    ids[0] = 'changed';
+    expectError(harness.call('controls.set', { key: 'mixer.channel.0.eq.1.gain', value: 0.5, expectedChannelUniqueId: 'id-0' }), 'CHANNEL_CHANGED');
+    assert.equal(harness.call('controls.get', { key: 'mixer.channel.0.eq.1.gain' }).data.control.observed, null);
+    expectError(harness.call('controls.get', { key: 'mixer.channel.0.eq.5.gain' }), 'INVALID_CONTROL');
+    expectError(harness.call('controls.get', { key: 'mixer.channel.0.send.1.level' }), 'INVALID_CONTROL');
+    assert.equal(harness.call('controls.get', { key: 'mixer.channel.0.filter.bypass' }).data.control.error.code, 'API_UNAVAILABLE');
+    expectError(harness.call('controls.get', { key: 'mixer.channel.0.instrument.edit' }), 'INVALID_CONTROL');
+    expectError(harness.call('controls.get', { key: 'mixer.channel.0.strip.gate.edit' }), 'INVALID_CONTROL');
+});
+
+test('bank send bounds reject excessive counts and missing collections', () => {
+    const harness = fixture((api, state, { host }) => {
+        host.mMixConsole.makeMixerBankZone = () => ({ makeMixerBankChannel: () => ({
+            mValue: {}, getUniqueIDString: () => 'id', getRuntimeID: () => 1,
+            mSends: { getSize: () => 33, getByIndex: () => ({}) }
+        }) });
+    });
+    const groups = listAll(harness).groups;
+    assert.equal(groups['mixer.channel.0.send'].error.code, 'HOST_LIMIT_EXCEEDED');
+    assert.equal(groups['mixer.channel.0.cueSend'].error.code, 'API_UNAVAILABLE');
+    expectError(harness.call('controls.get', { key: 'mixer.channel.0.send.0.level' }), 'INVALID_CONTROL');
+    assert.equal(harness.call('controls.get', { key: 'mixer.channel.0.eq.1.gain' }).data.control.error.code, 'API_UNAVAILABLE');
+});
+
+test('bank sends do not starve later channel slots at supported host maxima', () => {
+    const harness = fixture((api, state, { host }) => {
+        host.mMixConsole.makeMixerBankZone = () => {
+            let index = 0;
+            return { makeMixerBankChannel() {
+                const slot = index++;
+                return { mValue: {}, getUniqueIDString: () => `channel-${slot}`, getRuntimeID: () => slot,
+                    mSends: { getSize: () => 32, getByIndex: () => ({ mOn: {}, mPrePost: {}, mLevel: {} }) },
+                    mCueSends: { mBypass: {}, getSize: () => 32,
+                        getByIndex: () => ({ mOn: {}, mPrePost: {}, mLevel: {}, mPan: {} }) } };
+            } };
+        };
+    });
+    for (const key of ['mixer.channel.7.send.31.level', 'mixer.channel.7.cueSend.31.pan', 'mixer.channel.7.cueSend.bypass']) {
+        const result = harness.call('controls.get', { key }).data.control;
+        assert.equal(result.available, true);
+        assert.equal(result.channel.uniqueId, 'channel-7');
+        assert.equal(harness.call('controls.set', { key, value: 0.5, expectedChannelUniqueId: 'channel-7' }).data.execution, 'submitted');
+    }
+});
+
+test('nested bank groups report missing channel identity instead of branch readiness', () => {
+    const harness = fixture((api, state, { host }) => {
+        host.mMixConsole.makeMixerBankZone = () => ({ makeMixerBankChannel: () => ({
+            mValue: {}, mPreFilter: { mGain: {} }, getUniqueIDString: () => '', getRuntimeID: () => 1
+        }) });
+    });
+    const group = listAll(harness).groups['mixer.channel.0.filter'];
+    assert.equal(group.available, false);
+    assert.equal(group.error.code, 'NO_CHANNEL');
+    assert.equal(group.channel.uniqueId, null);
 });
 
 test('bank channel missing identities and wrong identifier fields fail closed', () => {
@@ -608,7 +697,7 @@ test('factory registers exact ports and reports only real app and root data', ()
     assert.deepEqual(harness.detectionNames, harness.portNames);
     const status = harness.status.data;
     assert.equal(status.appVersion, '16.0.5');
-    assert.equal(status.bridgeRevision, '2026-11-10-coverage-3.3');
+    assert.equal(status.bridgeRevision, '2026-11-10-coverage-3.4');
     assert.deepEqual(status.policy, { backgroundOnly: true, fallback: false });
     assert.equal(status.discovery.controlTotal, 124);
     assert.equal(harness.call('objects.list', { root: 'trackSelection' }).data.baseObject.uniqueIdString, 'uid-1');

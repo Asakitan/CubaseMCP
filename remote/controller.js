@@ -11,7 +11,7 @@ var MAX_OBJECTS = 2048;
 var MAX_TAGS = 8192;
 var MAX_PLUGINS = 8192;
 var MAX_INTEGER = 9007199254740991;
-var BRIDGE_REVISION = '2026-11-10-coverage-3.3';
+var BRIDGE_REVISION = '2026-11-10-coverage-3.4';
 
 function fail(code, message, details, execution) {
     var error = new Error(message);
@@ -593,7 +593,7 @@ function createController(api, logger) {
         } catch (error) { record.error = errorData(error); }
     }
 
-    function makeQuickControls(prefix, path, collection) {
+    function makeQuickControls(prefix, path, collection, bankIndex) {
         for (var index = 0; index < 8; index++) {
             var value = null;
             var failure = null;
@@ -605,11 +605,12 @@ function createController(api, logger) {
                 failure = errorData(error);
             }
             makeControl(prefix + index, path + '.getByIndex(' + index + ')', value, false);
+            if (bankIndex !== undefined) controls[prefix + index].bankIndex = bankIndex;
             if (failure) controls[prefix + index].error = failure;
         }
     }
 
-    function makeHostFields(prefix, path, hostObject, fields, readOnly) {
+    function makeHostFields(prefix, path, hostObject, fields, readOnly, bankIndex) {
         fields.forEach(function (field) {
             var key = prefix + field[0];
             var fullPath = path + '.' + field[1];
@@ -621,6 +622,7 @@ function createController(api, logger) {
                 makeControl(key, fullPath, null, false, readOnly);
                 controls[key].error = errorData(error);
             }
+            if (bankIndex !== undefined) controls[key].bankIndex = bankIndex;
         });
     }
 
@@ -637,7 +639,7 @@ function createController(api, logger) {
         }
     }
 
-    function makeSendControls(channel, field, groupName, fields) {
+    function makeSendControls(channel, field, groupName, fields, basePath, bankIndex) {
         var group = { available: false, count: null };
         controlGroups[groupName] = group;
         try {
@@ -653,8 +655,8 @@ function createController(api, logger) {
                 try { slot = invoke(sends, 'getByIndex', [index]); }
                 catch (error) { slotError = errorData(error); }
                 var prefix = groupName + '.' + index + '.';
-                makeHostFields(prefix, 'mHostAccess.mTrackSelection.mMixerChannel.' + field + '.getByIndex(' + index + ')',
-                    slot, fields);
+                makeHostFields(prefix, basePath + '.' + field + '.getByIndex(' + index + ')',
+                    slot, fields, false, bankIndex);
                 if (slotError) {
                     fields.forEach(function (item) { controls[prefix + item[0]].error = slotError; });
                 }
@@ -756,12 +758,21 @@ function createController(api, logger) {
             }
         });
         groupKeys.slice(groupOffset, groupOffset + groupLimit).forEach(function (key) {
-            var match = /^mixer\.channel\.(\d+)$/.exec(key);
+            var match = /^mixer\.channel\.(\d+)(?:\.|$)/.exec(key);
             if (match) { try { bankChannelIdentity(Number(match[1]), true); } catch (error) { markBankError(Number(match[1]), error); } }
         });
         var items = keys.slice(offset, offset + limit).map(function (key) { return boundedMetadata(controlInfo(controls[key]), 0); });
         groupKeys.slice(groupOffset, groupOffset + groupLimit).forEach(function (key) {
             groups[key] = boundedMetadata(controlGroups[key], 0);
+            var match = /^mixer\.channel\.(\d+)\./.exec(key);
+            if (match) {
+                var index = Number(match[1]), slot = bankSlots[index], channelGroup = controlGroups['mixer.channel.' + index];
+                groups[key].channel = { index: index, uniqueId: slot.uniqueId, runtimeId: slot.runtimeId };
+                if (!slot.uniqueId) {
+                    groups[key].available = false;
+                    if (!groups[key].error && channelGroup && channelGroup.error) groups[key].error = boundedMetadata(channelGroup.error, 0);
+                }
+            }
         });
         var next = Math.min(keys.length, offset + items.length);
         var nextGroup = Math.min(groupKeys.length, groupOffset + Object.keys(groups).length);
@@ -848,6 +859,10 @@ function createController(api, logger) {
         return submitted(function () {
             if (record.action && args.key.indexOf('track.') === 0) clearTrackObservation();
             if (record.action && args.key.indexOf('mixer.bank.') === 0) clearBankObservations();
+            if (record.bankIndex !== undefined && /\.selected$/.test(args.key)) {
+                clearTrackObservation();
+                observedTrackId = null;
+            }
             setSurface(record, value, record.momentary);
             return receipt(request, { key: args.key, requestedValue: value, before: before, after: record.observed });
         });
@@ -1263,9 +1278,11 @@ function createController(api, logger) {
             hostBranch(equalizer, bandField, 'track.eq.' + bandIndex),
             [['gain', 'mGain'], ['frequency', 'mFreq'], ['q', 'mQ'], ['on', 'mOn'], ['filterType', 'mFilterType']]);
     }
-    makeSendControls(channel, 'mSends', 'track.send', [['on', 'mOn'], ['prePost', 'mPrePost'], ['level', 'mLevel']]);
+    makeSendControls(channel, 'mSends', 'track.send', [['on', 'mOn'], ['prePost', 'mPrePost'], ['level', 'mLevel']],
+        'mHostAccess.mTrackSelection.mMixerChannel');
     var cueSends = makeSendControls(channel, 'mCueSends', 'track.cueSend',
-        [['on', 'mOn'], ['prePost', 'mPrePost'], ['level', 'mLevel'], ['pan', 'mPan']]);
+        [['on', 'mOn'], ['prePost', 'mPrePost'], ['level', 'mLevel'], ['pan', 'mPan']],
+        'mHostAccess.mTrackSelection.mMixerChannel');
     makeHostFields('track.cueSend.', 'mHostAccess.mTrackSelection.mMixerChannel.mCueSends', cueSends,
         [['bypass', 'mBypass']]);
     makeHostFields('track.instrument.', 'mHostAccess.mTrackSelection.mMixerChannel.mInstrumentPluginSlot',
@@ -1447,7 +1464,7 @@ function createController(api, logger) {
             var values = null;
             try { values = bankChannel && bankChannel.mValue; } catch (error) { channelError = errorData(error); }
             var bankFields = [['volume', 'mVolume'], ['pan', 'mPan'], ['mute', 'mMute'], ['solo', 'mSolo'],
-                ['recordEnable', 'mRecordEnable'], ['monitorEnable', 'mMonitorEnable'],
+                ['recordEnable', 'mRecordEnable'], ['monitorEnable', 'mMonitorEnable'], ['selected', 'mSelected'],
                 ['automationRead', 'mAutomationRead'], ['automationWrite', 'mAutomationWrite'],
                 ['meter.level', 'mVUMeter'], ['meter.maximum', 'mVUMeterMax'],
                 ['meter.clip', 'mVUMeterClip'], ['meter.peak', 'mVUMeterPeak']];
@@ -1458,6 +1475,39 @@ function createController(api, logger) {
                     hostValue, false, field[0].indexOf('meter.') === 0);
                 controls[key].bankIndex = bankIndex;
                 if (failure) controls[key].error = failure;
+            });
+            var bankPath = 'mHostAccess.mMixConsole.makeMixerBankZone().makeMixerBankChannel(' + bankIndex + ')';
+            var bankFilter = hostBranch(bankChannel, 'mPreFilter', channelGroup + '.filter');
+            makeHostFields(channelGroup + '.filter.', bankPath + '.mPreFilter', bankFilter,
+                [['bypass', 'mBypass'], ['gain', 'mGain'], ['phase', 'mPhaseSwitch'],
+                 ['highCutOn', 'mHighCutOn'], ['highCutFrequency', 'mHighCutFreq'], ['highCutSlope', 'mHighCutSlope'],
+                 ['lowCutOn', 'mLowCutOn'], ['lowCutFrequency', 'mLowCutFreq'], ['lowCutSlope', 'mLowCutSlope']], false, bankIndex);
+            var bankEq = hostBranch(bankChannel, 'mChannelEQ', channelGroup + '.eq');
+            for (var eqIndex = 1; eqIndex <= 4; eqIndex++) {
+                var eqField = 'mBand' + eqIndex;
+                makeHostFields(channelGroup + '.eq.' + eqIndex + '.', bankPath + '.mChannelEQ.' + eqField,
+                    hostBranch(bankEq, eqField, channelGroup + '.eq.' + eqIndex),
+                    [['gain', 'mGain'], ['frequency', 'mFreq'], ['q', 'mQ'], ['on', 'mOn'], ['filterType', 'mFilterType']], false, bankIndex);
+            }
+            makeSendControls(bankChannel, 'mSends', channelGroup + '.send',
+                [['on', 'mOn'], ['prePost', 'mPrePost'], ['level', 'mLevel']], bankPath, bankIndex);
+            var bankCues = makeSendControls(bankChannel, 'mCueSends', channelGroup + '.cueSend',
+                [['on', 'mOn'], ['prePost', 'mPrePost'], ['level', 'mLevel'], ['pan', 'mPan']], bankPath, bankIndex);
+            makeHostFields(channelGroup + '.cueSend.', bankPath + '.mCueSends', bankCues,
+                [['bypass', 'mBypass']], false, bankIndex);
+            var bankQuick = hostBranch(bankChannel, 'mQuickControls', channelGroup + '.quick');
+            makeQuickControls(channelGroup + '.quick.', bankPath + '.mQuickControls', bankQuick, bankIndex);
+            var bankInstrument = hostBranch(bankChannel, 'mInstrumentPluginSlot', channelGroup + '.instrument');
+            makeHostFields(channelGroup + '.instrument.', bankPath + '.mInstrumentPluginSlot', bankInstrument,
+                [['on', 'mOn'], ['bypass', 'mBypass'], ['automationRead', 'mAutomationRead'], ['automationWrite', 'mAutomationWrite']], false, bankIndex);
+            var bankEffects = hostBranch(bankChannel, 'mInsertAndStripEffects', channelGroup + '.effects');
+            var bankStrip = hostBranch(bankEffects, 'mStripEffects', channelGroup + '.strip');
+            [['gate', 'mGate'], ['compressor', 'mCompressor'], ['limiter', 'mLimiter'],
+                ['saturator', 'mSaturator'], ['tools', 'mTools']].forEach(function (entry) {
+                var group = channelGroup + '.strip.' + entry[0];
+                makeHostFields(group + '.', bankPath + '.mInsertAndStripEffects.mStripEffects.' + entry[1],
+                    hostBranch(bankStrip, entry[1], group),
+                    [['on', 'mOn'], ['bypass', 'mBypass'], ['automationRead', 'mAutomationRead'], ['automationWrite', 'mAutomationWrite']], false, bankIndex);
             });
         }
     }

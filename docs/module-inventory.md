@@ -8,12 +8,12 @@
 | `src/doctor.ts` | `dist/src/doctor.js` | Reports operational readiness separately from handshake availability |
 | `src/midi.ts` | `dist/src/midi.js` | 15 tests passed; exact ports, deadline and fault latch |
 | `remote/protocol.js` | Driver folder and `dist/remote/protocol.js` | 2 protocol tests passed |
-| `remote/controller.js` | Driver folder | Coverage 3.3 installed and construction logged; mixer bank fixture-tested, device activation unverified |
+| `remote/controller.js` | Driver folder | Coverage 3.4 installed and constructed; guarded bank controls fixture-tested, device activation unverified |
 | `remote/CubaseAI_MCP.js` | Driver entry | Top-level CommonJS export removed; ES5 regression passed and current host logged controller construction |
 | `remote/commands.js` | Driver command allowlist | 3 fixed bindings; ES5 verified and installed |
 | `scripts/Install-Remote.ps1` | Local driver installation | Four files deployed; no Cubase launch |
 | `.vscode/mcp.json` | VS Code stdio server | Configured against built entry |
-| `.vscode/tasks.json` | Build/test/install/live-diagnostic tasks | Build and 70-test suite passed; current real-host handshake remains unavailable |
+| `.vscode/tasks.json` | Build/test/install/live-diagnostic tasks | Build and 74-test suite passed; current real-host handshake remains unverified |
 | `scripts/Install-Midi.ps1` | Installed loopMIDI/virtualMIDI driver | Explicit installation completed |
 | `native/MidiPortHost.cs` | Hidden PowerShell port process | Real SysEx loopbacks and client-PID query tested |
 | `scripts/Start-MidiPorts.ps1` | Two exact-name virtual ports | Running with explicit stop and correlated one-shot client inspection |
@@ -59,6 +59,8 @@
 | `scripts/Trace-MidiStartup.ps1`, `docs/midi-startup-timeline.md` | Isolated read-only startup snapshots | Version-validated, bounded listener and project-tree sampling; prearmed launch mode is diagnostic only |
 | `tests/background-launch-pipe.ps1` | Focused background-launch contract check | Existing-instance guard returned through captured stdout with separate holder logs; a fresh launch was not tested by this check |
 | `docs/project-open-routing.md`, `docs/project-lifecycle-dispatch.md`, `scripts/project-lifecycle-dispatch-inspect.py` | Lifecycle routing and dispatcher investigation | Static paths and file association observed; main-thread affinity and unattended lifecycle contract remain unverified |
+| `docs/midi-coverage-3.4.md` | Bank-channel coverage and limits | Declaration-backed guarded controls; current live mapping and project operations remain unverified |
+| `docs/midi-project-event-sources.md`, `docs/project-activation-route.md`, associated `scripts/*-inspect.py` | Project selector and event-source investigation | Seven static direct callers and old/new notifications verified; no public background activation contract established |
 
 ## Update Log
 
@@ -75,3 +77,4 @@
 | 2026-11-10 | Deployed coverage 3.3 to the private host and traced activation and project-save internals; a real status request still timed out before any write. |
 | 2026-11-10 | Observed empty MIDI Remote host-port collections despite open OS ports and traced an installed DAWproject filter; project and activation contracts remain unverified. |
 | 2026-11-10 | Added prearmed startup sampling, documented project routing, and detached background-holder output; observed root-before-informer samples and an empty notification tree, while the current MCP handshake timed out. |
+| 2026-11-10 | Expanded identity-guarded bank controls in revision 3.4 and traced additional static project-selector callers; real mapping and lifecycle verification remain open. |

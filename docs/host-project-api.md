@@ -16,6 +16,8 @@ The request method initializes the cached service via a global lookup at RVA `0x
 
 `Components/projectplugin.dll` has RTTI names `IProjectPluginService`, `ProjectPluginRequest`, `GetMusicalTrackRequest`, `CreateTracksRequest`, `MixExportRequest`, `TransportRequest`, `LocatorsRequest`, and corresponding response types. The initialized strings at RVAs `0x33d68`–`0x33ee8` include `payload_version`, `command`, `tracks`, `clips`, `events`, `file_path`, `response_name`, `response_status`, `track`, and `response_action`, plus version-pattern text `^\\d{4}\\.\\d{2}\\.\\d{2}$`. These strings identify candidate fields, not a complete request or validated schema.
 
+In a session 11 module-list snapshot of isolated PID 46868, `dawproject.dll` and `hostchannelaccess.dll` were observed, while `projectplugin.dll` was not observed (`artifacts/ipc/project-modules-46868.json`). This is a point-in-time module enumeration, not proof of the reason for its absence, edition capability or request behavior. No current host request was submitted in that check.
+
 The bounded parser/handler inventory, exact known literals, field evidence, and unverified schema boundaries are maintained in `project-command-catalog.md`.
 
 ### Read-only request candidate
