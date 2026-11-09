@@ -11,7 +11,7 @@ var MAX_OBJECTS = 2048;
 var MAX_TAGS = 8192;
 var MAX_PLUGINS = 8192;
 var MAX_INTEGER = 9007199254740991;
-var BRIDGE_REVISION = '2026-11-10-coverage-3.4';
+var BRIDGE_REVISION = '2026-11-10-coverage-3.5';
 
 function fail(code, message, details, execution) {
     var error = new Error(message);
@@ -859,6 +859,7 @@ function createController(api, logger) {
         return submitted(function () {
             if (record.action && args.key.indexOf('track.') === 0) clearTrackObservation();
             if (record.action && args.key.indexOf('mixer.bank.') === 0) clearBankObservations();
+            if (record.action && record.bankIndex !== undefined && args.key.indexOf('.insert.') !== -1) clearBankSlot(record.bankIndex);
             if (record.bankIndex !== undefined && /\.selected$/.test(args.key)) {
                 clearTrackObservation();
                 observedTrackId = null;
@@ -903,6 +904,10 @@ function createController(api, logger) {
         slot.uniqueId = null; slot.runtimeId = null; slot.admitted = false;
         Object.keys(controls).forEach(function (key) {
             if (controls[key].bankIndex === index) { controls[key].observed = null; controls[key].display = null; }
+        });
+        Object.keys(controlGroups).forEach(function (key) {
+            if (key.indexOf('mixer.channel.' + index + '.insert.') === 0 &&
+                Object.prototype.hasOwnProperty.call(controlGroups[key], 'pluginIdentity')) controlGroups[key].pluginIdentity = null;
         });
         if (controlGroups['mixer.channel.' + index]) {
             controlGroups['mixer.channel.' + index].available = false;
@@ -1438,6 +1443,65 @@ function createController(api, logger) {
             'controlRoom.phones.' + index + '.sourceCue',
             'mHostAccess.mControlRoom.getPhonesChannelByIndex(' + index + ')', selectorBudget);
     });
+    function makeBankInsertViewer(channel, index, name, filter, slotIndex) {
+        var group = 'mixer.channel.' + index + '.insert.' + name;
+        var path = 'mHostAccess.mMixConsole.makeMixerBankZone().makeMixerBankChannel(' + index + ').mInsertAndStripEffects.makeInsertEffectViewer(' + name + ')';
+        var viewer;
+        try {
+            var effects = channel && channel.mInsertAndStripEffects;
+            viewer = invoke(effects, 'makeInsertEffectViewer', ['CubaseAI MCP bank ' + index + ' ' + name]);
+            if (!viewer) fail('API_UNAVAILABLE', 'Bank insert viewer was not created.');
+            if (filter === 'empty') viewer = invoke(viewer, 'includeEmptySlotsOnly', []);
+            else if (filter === 'occupied') viewer = invoke(viewer, 'excludeEmptySlots', []);
+            else if (filter === 'slot') viewer = invoke(viewer, 'accessSlotAtIndex', [slotIndex]);
+            if (!viewer) fail('API_UNAVAILABLE', 'Bank insert viewer filter returned no object.');
+            controlGroups[group] = { available: true, filter: filter, index: slotIndex, pluginIdentity: null };
+        } catch (error) {
+            controlGroups[group] = { available: false, error: errorData(error) };
+            return;
+        }
+        makeHostFields(group + '.', path, viewer,
+            [['on', 'mOn'], ['bypass', 'mBypass'], ['automationRead', 'mAutomationRead'], ['automationWrite', 'mAutomationWrite']], true, index);
+        try {
+            viewer.mOnChangePluginIdentity = function (device, mapping, name, vendor, version, format) {
+                if (device !== activeDevice || mapping !== activeMapping ||
+                    typeof name !== 'string' || typeof vendor !== 'string' || typeof version !== 'string' || typeof format !== 'string' ||
+                    name.length > 4096 || vendor.length > 4096 || version.length > 4096 || format.length > 4096) return;
+                Object.keys(controls).forEach(function (key) {
+                    if (key.indexOf(group + '.') === 0) { controls[key].observed = null; controls[key].display = null; }
+                });
+                try {
+                    var current = bankChannelIdentity(index, false);
+                    controlGroups[group].pluginIdentity = { name: name, vendor: vendor, version: version,
+                        formatVersion: format, channelUniqueId: current.uniqueId, channelRuntimeId: current.runtimeId };
+                } catch (error) { markBankError(index, error); }
+            };
+        } catch (error) { controlGroups[group].identityError = errorData(error); }
+        [['previous', 'mPrev'], ['next', 'mNext'], ['reset', 'mReset']].forEach(function (entry) {
+            var action = null;
+            try { action = viewer.mAction && viewer.mAction[entry[1]]; } catch (ignored) {}
+            var key = group + '.viewer.' + entry[0];
+            makeActionControl(key, path + '.mAction.' + entry[1], action);
+            controls[key].bankIndex = index;
+        });
+        var bank = hostBranch(viewer, 'mParameterBankZone', group + '.bank');
+        if (!bank) return;
+        for (var parameter = 0; parameter < 8; parameter++) {
+            var value = null, failure = null;
+            try { value = invoke(bank, 'makeParameterValue', []); } catch (error) { failure = errorData(error); }
+            var key = group + '.parameter.' + parameter;
+            makeControl(key, path + '.mParameterBankZone.makeParameterValue(' + parameter + ')', value, false, true);
+            controls[key].bankIndex = index;
+            if (failure) controls[key].error = failure;
+        }
+        [['previous', 'mPrevBank'], ['next', 'mNextBank'], ['reset', 'mResetBank']].forEach(function (entry) {
+            var action = null;
+            try { action = bank.mAction && bank.mAction[entry[1]]; } catch (ignored) {}
+            var key = group + '.bank.' + entry[0];
+            makeActionControl(key, path + '.mParameterBankZone.mAction.' + entry[1], action);
+            controls[key].bankIndex = index;
+        });
+    }
     var mixerBank = null;
     try {
         mixerBank = invoke(host && host.mMixConsole, 'makeMixerBankZone', ['CubaseAI MCP']);
@@ -1495,12 +1559,24 @@ function createController(api, logger) {
                 [['on', 'mOn'], ['prePost', 'mPrePost'], ['level', 'mLevel'], ['pan', 'mPan']], bankPath, bankIndex);
             makeHostFields(channelGroup + '.cueSend.', bankPath + '.mCueSends', bankCues,
                 [['bypass', 'mBypass']], false, bankIndex);
+            var bankEffects = hostBranch(bankChannel, 'mInsertAndStripEffects', channelGroup + '.effects');
+            makeBankInsertViewer(bankChannel, bankIndex, 'all', 'all', null);
+            makeBankInsertViewer(bankChannel, bankIndex, 'empty', 'empty', null);
+            makeBankInsertViewer(bankChannel, bankIndex, 'occupied', 'occupied', null);
+            try {
+                var bankInsertCount = hostCount(invoke(api.mDefaults, 'getNumberOfInsertEffectSlots', []));
+                if (bankInsertCount > 16) fail('HOST_LIMIT_EXCEEDED', 'Bank insert slot maximum exceeds the viewer limit.', { count: bankInsertCount });
+                method(bankEffects, 'makeInsertEffectViewer');
+                controlGroups[channelGroup + '.insert.slots'] = { available: true, count: bankInsertCount };
+                for (var bankInsertIndex = 0; bankInsertIndex < bankInsertCount; bankInsertIndex++)
+                    makeBankInsertViewer(bankChannel, bankIndex, 'slot.' + bankInsertIndex, 'slot', bankInsertIndex);
+            } catch (error) { controlGroups[channelGroup + '.insert.slots'] = { available: false, error: errorData(error) }; }
+
             var bankQuick = hostBranch(bankChannel, 'mQuickControls', channelGroup + '.quick');
             makeQuickControls(channelGroup + '.quick.', bankPath + '.mQuickControls', bankQuick, bankIndex);
             var bankInstrument = hostBranch(bankChannel, 'mInstrumentPluginSlot', channelGroup + '.instrument');
             makeHostFields(channelGroup + '.instrument.', bankPath + '.mInstrumentPluginSlot', bankInstrument,
                 [['on', 'mOn'], ['bypass', 'mBypass'], ['automationRead', 'mAutomationRead'], ['automationWrite', 'mAutomationWrite']], false, bankIndex);
-            var bankEffects = hostBranch(bankChannel, 'mInsertAndStripEffects', channelGroup + '.effects');
             var bankStrip = hostBranch(bankEffects, 'mStripEffects', channelGroup + '.strip');
             [['gate', 'mGate'], ['compressor', 'mCompressor'], ['limiter', 'mLimiter'],
                 ['saturator', 'mSaturator'], ['tools', 'mTools']].forEach(function (entry) {

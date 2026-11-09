@@ -5,6 +5,10 @@ import pefile
 
 PATH = Path(r"C:\Program Files\Steinberg\Cubase 16\Cubase 16.exe")
 RANGES = {
+    "independent-removal-caller": (0x1CF4AB3, 0x1CF4ACB),
+    "independent-removal-gate": (0x279E390, 0x279E3ED),
+    "independent-removal-notify": (0x279E446, 0x279E4B5),
+    "independent-removal-root-clear": (0x279E51D, 0x279E5C2),
     "activate-project-command": (0x1D1E1D6, 0x1D1E214),
     "root-selector-check": (0x279E640, 0x279E697),
     "old-root-notify": (0x279E755, 0x279E7AA),

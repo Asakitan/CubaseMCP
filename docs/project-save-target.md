@@ -16,6 +16,12 @@ The same static `FNFileSystem` vtable's slot `+0xe0` targets `0x3b0b820`, which 
 
 The save routine's failure branch at `0x1d58d50` calls `0x1d562b0` with a status and the document/path context. At `0x1d5671f`–`0x1d56732`, that helper obtains an object and makes an indirect call with result storage; at `0x1d56736`–`0x1d5674b`, it branches on the resulting integer. For status `-0x60` one result causes a document flag update at `0x1d56751`; the caller may then recursively re-enter the save routine. Another result follows a file/context path that references the string `More Information` at `0x1d5680c`. This is a concrete user-interaction-like decision path, but the callee's precise UI behavior and all error meanings are not established. A fixed existing path does not prove the operation stays windowless.
 
+### Alert service resolution
+
+The helper obtains its indirect receiver through `0x3ad6050` with a zero argument. If provider global `0x599e6c0` is non-null, the getter dispatches its slot `+0x08`; otherwise it enters its static initialization path. That path can call the default factory at `0x3ad5ee0`, which looks up the exact interface name `Alert::IDialog` through a manager at global `0x58a65f8`. It caches the returned pointer at `0x599e6b0`; if that factory yields null, the initialization path stores the static object at `0x5530110`, whose first method is `0x3ad6690`. The save-error helper then calls the first virtual slot on the receiver and branches on the integer it writes into result storage. These are static data-flow observations, not proof of a visible window, a particular button selection, or the effective provider on a later call.
+
+A bounded read-only snapshot of the then-running isolated PID 46868 at `2026-11-09T17:50:59Z` found provider and cache globals both zero and the manager global nonzero (`artifacts/ipc/project-save-alert-state-46868.json`). Process start, executable version, image base and PE timestamp were checked; the three global reads were repeated, but no lock or service call was used. That snapshot is consistent with the getter having not populated those globals; it does not establish that a save error occurred or what a later lookup will return. `scripts/project-save-alert-inspect.py` verifies the PE profile and interface string before printing the fixed disassembly slices.
+
 ## Remaining discriminators
 
 1. Reconstruct the path-component transformations and subsequent filesystem rename/replace branches, including the exact selected path before `CreateFileW`.

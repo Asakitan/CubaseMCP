@@ -1,6 +1,6 @@
 import { BridgeError } from './midi.js';
 
-export const EXPECTED_BRIDGE_REVISION = '2026-11-10-coverage-3.4';
+export const EXPECTED_BRIDGE_REVISION = '2026-11-10-coverage-3.5';
 
 export function inspectBridge(status: unknown) {
     const host = status && typeof status === 'object' ? status as Record<string, unknown> : {};

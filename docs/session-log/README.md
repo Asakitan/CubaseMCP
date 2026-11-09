@@ -13,3 +13,4 @@
 | [09](session-09.md) | 2026-11-10 | Observe MIDI Remote host-port model and trace the loaded DAWproject filter. |
 | [10](session-10.md) | 2026-11-10 | Trace isolated startup ordering and investigate lifecycle routing and dispatch. |
 | [11](session-11.md) | 2026-11-10 | Extend guarded mixer-bank controls and trace project activation event sources. |
+| [12](session-12.md) | 2026-11-10 | Add guarded bank insert viewers and trace save/activation provenance. |

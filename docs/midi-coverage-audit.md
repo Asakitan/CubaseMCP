@@ -12,13 +12,13 @@ This audit compares the bridge to the installed Cubase 16.0.5 declaration file `
 | Selected channel strip | On, bypass, automation, callback identity, eight parameter-bank values and previous/next/reset actions for the five declared strip slots | Missing branches report unavailable; identity callbacks are session/track scoped and edit-window controls are omitted. |
 | Control Room | Root/main/indexed values, source selectors and momentary next-downmix control | Host maxima are limits, not configured channel counts. Indexed channels share a 16-channel budget and selectors share a 64-value budget; oversized groups fail without partial admission. |
 | Mixer bank | Eight fixed bank positions with core/selection, pre-filter, EQ, sends, cue sends, quick controls, instrument and strip values, plus read-only aggregate meters; fixed previous/next/shift/reset actions | Writes require a previously observed and currently matching channel identity. Action submission does not prove a bank position. See `docs/midi-mixer-bank.md`. |
-| Insert viewers | Fixed all, empty, occupied and host-count-bounded index filters; read-only values, identity callbacks and track-guarded viewer/bank actions | Index filtering and callback attribution remain unverified on a live host; plug-in parameter writes are intentionally withheld. See `docs/midi-insert-viewer.md`. |
+| Insert viewers | Selected-channel and bank-channel all, empty, occupied and bounded index filters; read-only values, identity callbacks and channel-guarded viewer/bank actions | Index filtering and callback attribution remain unverified on a live host; plug-in parameter writes are intentionally withheld. See `docs/midi-insert-viewer.md`. |
 | Focused quick controls | Eight bindings and focus lock | Actual availability comes from the host. |
 | Commands | Fixed command bindings only | A performable binding and submission do not prove the desired project state or disk persistence. |
 
 ## Declared but not implemented
 
-- `MR_MixerBankZone` filtering configuration and bank-channel insert viewers and plugin parameter banks are not bound; mixer DirectAccess discovery remains separate.
+- `MR_MixerBankZone` filtering configuration and bank-channel plugin parameter writes are not bound; mixer DirectAccess discovery remains separate.
 - Insert viewer on/bypass/automation and parameter writes are not exposed; `mEdit` and focus-following are deliberately omitted. DirectAccess support does not imply every viewer is reachable in a particular edition or project.
 - `MR_MixerChannelValues.getVUChannelMeterByChannelIndex` and `getVUMeterMaxByChannelIndex` are not bound; aggregate meters are exposed read-only. The inspected declarations provide no corresponding selected-channel meter count, so arbitrary indices are not admitted.
 - Mouse-cursor bindings and editor/plugin open controls are intentionally omitted from the background-only surface.
@@ -27,4 +27,4 @@ The declarations do not establish a general project creation, MIDI/audio event e
 
 ## Verification
 
-Revision 3.4 adds bank-channel fixture checks for filters, EQ, sends, quick controls, selection and instrument/strip values, identity changes, missing branches and later-channel send admission. See `docs/midi-mixer-bank.md` for bounds. These fixtures do not establish host availability or live operation.
+Revision 3.5 adds bank insert viewer and navigation fixtures, including later-channel indexed slots, identity invalidation and missing branches. Revision 3.4 added bank-channel checks for filters, EQ, sends, quick controls, selection and instrument/strip values. See `docs/midi-mixer-bank.md` and `docs/midi-insert-viewer.md` for bounds. These fixtures do not establish host availability or live operation.

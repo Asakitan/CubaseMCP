@@ -18,7 +18,7 @@ test('large host maxima and error messages preserve compact handshake and bounde
         page.makeValueBinding = () => { throw new Error('unavailable-' + 'x'.repeat(5000)); };
     });
     assert.equal(harness.status.ok, true, JSON.stringify(harness.status));
-    assert.equal(harness.status.data.bridgeRevision, '2026-11-10-coverage-3.4');
+    assert.equal(harness.status.data.bridgeRevision, '2026-11-10-coverage-3.5');
     let offset = 0;
     const keys = [];
     do {
@@ -304,6 +304,98 @@ test('nested bank groups report missing channel identity instead of branch readi
     assert.equal(group.available, false);
     assert.equal(group.error.code, 'NO_CHANNEL');
     assert.equal(group.channel.uniqueId, null);
+});
+
+test('bank insert viewers are read-only and navigation invalidates channel and plugin observations', () => {
+    const ids = Array.from({ length: 8 }, (_, i) => `id-${i}`), viewers = {};
+    const harness = fixture((api, state, { host }) => {
+        api.mDefaults.getNumberOfInsertEffectSlots = () => 1;
+        host.mMixConsole.makeMixerBankZone = () => {
+            let i = 0;
+            return { mAction: { mNextBank: {} }, makeMixerBankChannel() {
+                const n = i++;
+                return { mValue: {}, getUniqueIDString: () => ids[n], getRuntimeID: () => n,
+                    mInsertAndStripEffects: { makeInsertEffectViewer(name) {
+                        const v = { mOn: {}, mBypass: {}, mAutomationRead: {}, mAutomationWrite: {},
+                            mAction: { mPrev: {}, mNext: {}, mReset: {} },
+                            mParameterBankZone: { makeParameterValue: () => ({}), mAction: { mPrevBank: {}, mNextBank: {}, mResetBank: {} } },
+                            includeEmptySlotsOnly() { return v; }, excludeEmptySlots() { return v; },
+                            accessSlotAtIndex(slot) { assert.equal(slot, 0); return v; } };
+                        viewers[name] = v; return v;
+                    } } };
+            } };
+        };
+    });
+    const group = 'mixer.channel.0.insert.slot.0', key = group + '.on';
+    const viewer = viewers['CubaseAI MCP bank 0 slot.0'];
+    assert.equal(harness.call('controls.get', { key }).data.control.readOnly, true);
+    expectError(harness.call('controls.set', { key, value: 1, expectedChannelUniqueId: ids[0] }), 'READ_ONLY');
+    expectError(harness.call('controls.set', { key: group + '.parameter.0', value: 1, expectedChannelUniqueId: ids[0] }), 'READ_ONLY');
+    viewer.mOnChangePluginIdentity(harness.device, harness.currentMapping(), 'A', 'V', '1', '3');
+    viewer.mOn.mOnProcessValueChange(harness.device, harness.currentMapping(), 1);
+    viewer.mOnChangePluginIdentity(harness.device, harness.currentMapping(), 'B', 'V', '1', '3');
+    viewer.mOnChangePluginIdentity({}, harness.currentMapping(), 'Wrong device', 'V', '1', '3');
+    viewer.mOnChangePluginIdentity(harness.device, {}, 'Wrong mapping', 'V', '1', '3');
+    assert.equal(harness.call('controls.get', { key }).data.control.observed, null);
+    assert.equal(listAll(harness).groups[group].pluginIdentity.name, 'B');
+    expectError(harness.call('controls.set', { key: group + '.viewer.next', value: 1 }), 'CONFIRMATION_REQUIRED');
+    expectError(harness.call('controls.set', { key: group + '.viewer.next', value: 1, expectedChannelUniqueId: ids[1] }), 'CHANNEL_UNOBSERVED');
+    assert.equal(harness.call('controls.set', { key: group + '.viewer.next', value: 1, expectedChannelUniqueId: ids[0] }).data.execution, 'submitted');
+    expectError(harness.call('controls.set', { key: group + '.bank.next', value: 1, expectedChannelUniqueId: ids[0] }), 'CHANNEL_UNOBSERVED');
+    assert.equal(listAll(harness).groups[group].pluginIdentity, null);
+    harness.call('controls.get', { key });
+    ids[0] = 'changed';
+    expectError(harness.call('controls.set', { key: group + '.bank.next', value: 1, expectedChannelUniqueId: 'id-0' }), 'CHANNEL_CHANGED');
+    expectError(harness.call('controls.get', { key: 'mixer.channel.0.insert.slot.1.on' }), 'INVALID_CONTROL');
+    harness.deactivate(); harness.activate();
+    expectError(harness.call('controls.set', { key: group + '.viewer.next', value: 1, expectedChannelUniqueId: 'changed' }), 'STALE_SESSION');
+});
+
+test('bank insert viewer missing host and excessive slot count report unavailable', () => {
+    const harness = fixture((api, state, { host }) => {
+        api.mDefaults.getNumberOfInsertEffectSlots = () => 17;
+        host.mMixConsole.makeMixerBankZone = () => ({ makeMixerBankChannel: () => ({
+            mValue: {}, getUniqueIDString: () => 'id', getRuntimeID: () => 1
+        }) });
+    });
+    const groups = listAll(harness).groups;
+    assert.equal(groups['mixer.channel.0.insert.all'].error.code, 'API_UNAVAILABLE');
+    assert.equal(groups['mixer.channel.0.insert.slots'].error.code, 'HOST_LIMIT_EXCEEDED');
+    expectError(harness.call('controls.get', { key: 'mixer.channel.0.insert.slot.0.on' }), 'INVALID_CONTROL');
+    const absent = fixture((api, state, { host }) => {
+        api.mDefaults.getNumberOfInsertEffectSlots = () => 2;
+        host.mMixConsole.makeMixerBankZone = () => ({ makeMixerBankChannel: () => ({
+            mValue: {}, getUniqueIDString: () => 'id', getRuntimeID: () => 1
+        }) });
+    });
+    assert.equal(listAll(absent).groups['mixer.channel.0.insert.slots'].error.code, 'API_UNAVAILABLE');
+});
+
+test('bank insert viewer indexed slots remain available on the final bank channel', () => {
+    const harness = fixture((api, state, { host }) => {
+        api.mDefaults.getNumberOfInsertEffectSlots = () => 16;
+        host.mMixConsole.makeMixerBankZone = () => {
+            let index = 0;
+            return { makeMixerBankChannel() {
+                const slot = index++;
+                return { mValue: {}, getUniqueIDString: () => `id-${slot}`, getRuntimeID: () => slot,
+                    mInsertAndStripEffects: { makeInsertEffectViewer() {
+                        const viewer = { mOn: {}, mAction: { mNext: {} },
+                            mParameterBankZone: { makeParameterValue: () => ({}), mAction: {} },
+                            includeEmptySlotsOnly() { return viewer; }, excludeEmptySlots() { return viewer; },
+                            accessSlotAtIndex(i) { assert.ok(i >= 0 && i < 16); return viewer; } };
+                        return viewer;
+                    } } };
+            } };
+        };
+    });
+    const key = 'mixer.channel.7.insert.slot.15.on';
+    const result = harness.call('controls.get', { key }).data.control;
+    assert.equal(result.available, true);
+    assert.equal(result.channel.uniqueId, 'id-7');
+    assert.equal(result.readOnly, true);
+    assert.equal(harness.call('controls.set', { key: 'mixer.channel.7.insert.slot.15.viewer.next', value: 1,
+        expectedChannelUniqueId: 'id-7' }).data.execution, 'submitted');
 });
 
 test('bank channel missing identities and wrong identifier fields fail closed', () => {
@@ -697,7 +789,7 @@ test('factory registers exact ports and reports only real app and root data', ()
     assert.deepEqual(harness.detectionNames, harness.portNames);
     const status = harness.status.data;
     assert.equal(status.appVersion, '16.0.5');
-    assert.equal(status.bridgeRevision, '2026-11-10-coverage-3.4');
+    assert.equal(status.bridgeRevision, '2026-11-10-coverage-3.5');
     assert.deepEqual(status.policy, { backgroundOnly: true, fallback: false });
     assert.equal(status.discovery.controlTotal, 124);
     assert.equal(harness.call('objects.list', { root: 'trackSelection' }).data.baseObject.uniqueIdString, 'uid-1');
