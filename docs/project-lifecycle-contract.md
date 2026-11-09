@@ -100,3 +100,5 @@ Run `python scripts/project-lifecycle-inspect.py` with `pefile` and `capstone` t
 No native project lifecycle call, script reload, MIDI notification, or persistence operation was made by this investigation. A safe next step is to determine the notification callback's concrete object identity and callers, and separately recover a lifecycle interface with defined argument ownership, main-thread dispatch, asynchronous completion and verified disk outcome before implementing any operation.
 
 `project-candidate-observation.md` records a later bounded current-process candidate and a separate static check showing that `PArrangement` constructs an `MRoot` at `+0x108`. The candidate's sampled root matched the global project root, but active selection, canonical path and lifecycle completion remain unproved.
+
+The subsequent session 19 one-shot host-open diagnostic produced a private moved-project working-directory dialog for a copied CPR; no completed lifecycle operation or dialog action was observed. The fixed-build prompt and parameter follow-up are in `project-open-probe-19.md` and `project-moved-prompt-19.md`.

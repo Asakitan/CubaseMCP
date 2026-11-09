@@ -18,6 +18,8 @@ The consumer's actual branch, thread, object lifetime and schedule remain unknow
 
 `project-open-16.md` subsequently traced the direct-versus-posted predicate to a calling-thread-ID comparison and sampled the backing thread ID. The queue consumer's actual execution thread and delivery remain unobserved.
 
+The session 19 one-shot host-open diagnostic returned its immediate result and was followed by a private moved-project dialog. It did not establish the exact consumer execution, completion or persistence; see `project-open-probe-19.md`.
+
 ## Reproduction
 
 `E:\Py\python.exe scripts/project-dispatch-15-inspect.py` checks machine, timestamp, preferred base, exact action strings, both application RTTI names and the two vtable slots. It decodes each entire containing runtime function from its PE-declared beginning and prints selected instruction spans. The focused check completed successfully after correcting the full namespace in the script's initial RTTI expectation. No process snapshot was taken in this session.

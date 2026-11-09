@@ -29,3 +29,5 @@ For sampled state bytes `0/0`, the static application slot's branch at `0x1d53be
 ## Reproduction
 
 `E:\Py\python.exe scripts/project-open-16-inspect.py` checks the fixed image, the three RTTI names and slots, the imported `GetCurrentThreadId`, and prints the predicate-related instructions. `powershell.exe -NoProfile -File scripts/project-open-16-snapshot.ps1 -TargetProcessId 39068` executes the identity-checked read-only snapshot only. Both focused checks ran successfully; they do not execute a project-open test.
+
+The later fixed one-shot diagnostic in `project-open-probe-19.md` submitted an open for a copied CPR with the optional path argument null. The host returned 0, while a private moved-project working-directory dialog appeared and the sampled original candidate/root remained; completion is unknown and the dialog was not operated. Static follow-up found that the ordinary existing-project branch calls `0x1d42430` without directly forwarding the host-open second argument, so a non-null `ProjectDir` has not been shown to avoid this prompt.

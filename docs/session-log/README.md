@@ -20,3 +20,4 @@
 | [16](session-16.md) | 2026-11-10 | Observe a project candidate/root match and trace the host-open thread predicate, save and scanner branches. |
 | [17](session-17.md) | 2026-11-10 | Correct selected-channel feedback invalidation and add runtime guards and verifier uncertainty handling. |
 | [18](session-18.md) | 2026-11-10 | Restrict desktop switching, load 3.6 in the isolated host, and repair holder pipe inheritance. |
+| [19](session-19.md) | 2026-11-10 | Submit one isolated copied-project open and trace the resulting working-directory prompt. |

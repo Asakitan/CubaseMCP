@@ -2,7 +2,14 @@
 
 Version: 0.1.0. The complete user goal remains active and is not achieved. The current server has 23 MIDI Remote tools; project creation, saving, event editing and parameterized rendering are not implemented, and current live MIDI operations have not passed.
 
-## Current session 18 evidence
+## Current session 19 evidence
+
+- A fixed, one-shot isolated `IHostApplication2` open diagnostic was submitted for a disposable CPR copy in PID 50568. Its worker returned 0, but a private moved-project working-directory dialog appeared; the sampled original document candidate/root remained unchanged. No dialog action was performed, so the open outcome remains `unknown` (`docs/project-open-probe-19.md`).
+- The target's held job was independently queried through a duplicated query-only handle and matched UI flag `0x40` and limit flag `0x2000`. During 546 passive samples no target input desktop or target foreground PID was observed; polling can miss transient changes (`docs/project-open-observer-19.md`). The diagnostic image is pinned and its path object retained in PID 50568; its admission and result records prohibit replay.
+- A static trace located the moved-project prompt and an earlier path-comparison branch; a same-working-directory copy is a candidate for later investigation, not proof of a prompt-free operation. The ordinary application-open branch does not directly forward the optional host-open second argument to `0x1d42430` (`docs/project-moved-prompt-19.md`).
+- Current MIDI mapping activation and real create/save/edit/reopen/render remain incomplete. The complete user goal is active.
+
+## Session 18 evidence
 
 - The isolated launcher now assigns a suspended target to a Windows job that prohibits documented desktop creation/switching, verifies the configured flags and input-desktop samples, and retains a kill-on-last-handle-close job. A synthetic child confirmed job membership and `CreateDesktopW` denial; these checks do not prove every foreground event is absent (`docs/background-desktop-job.md`).
 - After backing up the owned test directory and prior receipt, a user-approved restart launched PID 50568 on the private desktop with job restrictions. Its receipt sampled `Default` as the input desktop before creation, before resume and afterward; a project window appeared, both MIDI ports listed PID 50568, and the script console recorded construction of 3.6. One new no-write 3.6 status request timed out with execution `unknown` (`artifacts/live-smoke/verification-coverage-9ad5a1d9-85c1-4b80-8dcd-f960e1e9689a.json`). The request was not replayed.
