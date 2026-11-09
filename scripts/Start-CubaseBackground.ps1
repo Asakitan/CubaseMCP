@@ -12,14 +12,17 @@ if ($ProjectPath) {
     }
 }
 if ($Background) {
-    $StartInfo = New-Object Diagnostics.ProcessStartInfo
-    $StartInfo.FileName = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $StartInfo.Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $PSCommandPath + '"'
-    if ($ProjectPath) { $StartInfo.Arguments += ' -ProjectPath "' + $ProjectPath + '"' }
-    $StartInfo.UseShellExecute = $false
-    $StartInfo.CreateNoWindow = $true
-    $Process = [Diagnostics.Process]::Start($StartInfo)
-    [PSCustomObject]@{ status = 'starting'; hostPid = $Process.Id } | ConvertTo-Json
+    $StateDirectory = Join-Path $Root 'artifacts\runtime'
+    [IO.Directory]::CreateDirectory($StateDirectory) | Out-Null
+    $LaunchId = [Guid]::NewGuid().ToString('N')
+    $StdoutPath = Join-Path $StateDirectory "cubase-holder-$LaunchId.stdout.log"
+    $StderrPath = Join-Path $StateDirectory "cubase-holder-$LaunchId.stderr.log"
+    $Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $PSCommandPath + '"'
+    if ($ProjectPath) { $Arguments += ' -ProjectPath "' + $ProjectPath + '"' }
+    $Process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') `
+        -ArgumentList $Arguments -WindowStyle Hidden -RedirectStandardOutput $StdoutPath `
+        -RedirectStandardError $StderrPath -PassThru
+    [PSCustomObject]@{ status = 'starting'; hostPid = $Process.Id; stdoutFile = $StdoutPath; stderrFile = $StderrPath } | ConvertTo-Json
     $Process.Dispose()
     return
 }

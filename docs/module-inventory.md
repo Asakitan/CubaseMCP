@@ -18,7 +18,7 @@
 | `native/MidiPortHost.cs` | Hidden PowerShell port process | Real SysEx loopbacks and client-PID query tested |
 | `scripts/Start-MidiPorts.ps1` | Two exact-name virtual ports | Running with explicit stop and correlated one-shot client inspection |
 | `native/CubaseDesktop.cs` | Isolated Windows desktop/process lifetime | Private recovered project opened; no input desktop switch |
-| `scripts/Start-CubaseBackground.ps1` | Explicit existing CPR or copied AI test project | Validated path and unified runtime receipt; no native project-creation claim |
+| `scripts/Start-CubaseBackground.ps1` | Explicit existing CPR or copied AI test project | Validated path, runtime receipt, detached holder output; existing-instance guard test passed, no native project-creation claim |
 | `native/CubaseDeviceRefresh.cs` | Fixed isolated device notification diagnostic | Private worker-thread binding; delivery/reconnection unverified |
 | `scripts/Refresh-CubaseDevices.ps1` | Explicit device refresh diagnostic | Structured errors; no arbitrary message or MCP route |
 | `scripts/verify-live.cjs` | Actual stdio MCP verifier | Uses single-control queries and track guards; latest live handshake timed out |
@@ -56,6 +56,9 @@
 | `scripts/Read-DawprojectHostContext.ps1`, `scripts/dawproject-host-context-inspect.py`, `docs/dawproject-host-context.md` | Read-only host context and listener investigation | MProject/MRoot vtables and informer listener membership observed; active-project and import semantics unverified |
 | `scripts/Read-DawprojectRootField.ps1`, `docs/dawproject-active-project.md` | Read-only MRoot field investigation | A tempo-track event and its interface were observed; no arrangement or lifecycle operation claimed |
 | `docs/project-save-target.md` | Native save destination and cleanup investigation | Conditional file deletion and creation paths identified; exact targets and recovery semantics unresolved |
+| `scripts/Trace-MidiStartup.ps1`, `docs/midi-startup-timeline.md` | Isolated read-only startup snapshots | Version-validated, bounded listener and project-tree sampling; prearmed launch mode is diagnostic only |
+| `tests/background-launch-pipe.ps1` | Focused background-launch contract check | Existing-instance guard returned through captured stdout with separate holder logs; a fresh launch was not tested by this check |
+| `docs/project-open-routing.md`, `docs/project-lifecycle-dispatch.md`, `scripts/project-lifecycle-dispatch-inspect.py` | Lifecycle routing and dispatcher investigation | Static paths and file association observed; main-thread affinity and unattended lifecycle contract remain unverified |
 
 ## Update Log
 
@@ -71,3 +74,4 @@
 | 2026-11-10 | Recovered the score project, repaired the script entry, added bounded paging, insert-viewer and mixer-bank fixtures, and port-client diagnostics; 70 tests passed, while current mapping activation and native project CRUD remain open. |
 | 2026-11-10 | Deployed coverage 3.3 to the private host and traced activation and project-save internals; a real status request still timed out before any write. |
 | 2026-11-10 | Observed empty MIDI Remote host-port collections despite open OS ports and traced an installed DAWproject filter; project and activation contracts remain unverified. |
+| 2026-11-10 | Added prearmed startup sampling, documented project routing, and detached background-holder output; observed root-before-informer samples and an empty notification tree, while the current MCP handshake timed out. |

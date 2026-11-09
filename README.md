@@ -33,7 +33,7 @@ npm run doctor -- --live
 
 `install:remote` 只复制四个 MIDI Remote 文件，默认不覆盖不同内容。Cubase 需要在正常使用时加载该驱动。不要把这两个控制端口加入 MIDI 轨道的输入或 MIDI Thru 回路。MCP 服务本身不会安装驱动或启动其他应用。
 
-本机已经完成以上安装。诊断用 `npm run start:cubase-background` 在独立 Windows 桌面打开测试副本，不切换当前桌面；它不是不依赖 GUI 的 Cubase 引擎，也不是 MCP 工程创建接口。本次实验副本已经在私有桌面打开；完整的自动化生命周期和无需手动初始化仍是未完成目标。
+本机已经完成以上安装。诊断用 `npm run start:cubase-background` 在独立 Windows 桌面打开测试副本，不切换当前桌面；它不是不依赖 GUI 的 Cubase 引擎，也不是 MCP 工程创建接口。后台启动返回的 JSON 包含宿主 PID 和独立标准输出、错误日志路径，长时间运行的宿主不再继承调用者的输出管道；`starting` 本身不是启动成功证明。本次实验副本已经在私有桌面打开；完整的自动化生命周期和无需手动初始化仍是未完成目标。
 
 VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `cubase-ai16-headless`。其他客户端的 stdio 启动命令为 `node E:/VC/CubaseMCP/dist/src/server.js`。标准输出只用于 MCP 协议。
 
@@ -74,7 +74,7 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 
 较早的 `artifacts/live-smoke/verification.json` 记录了真实 Cubase AI 16.0.5 的发现、参数、反馈和音量写入恢复；它不证明本轮新增控制项、工程存储或完整功能覆盖。新版 `verify:live` 脚本要求当前控制器，旧记录与本轮实机验收分别记录。详细状态见 [STATUS](STATUS.md)。
 
-**当前状态（第 09 轮）**：专用隔离实例已打开单独的 `MCP Device Test 20261110.cpr` 实验副本，原工程和自动备份均已保留，前台未切换；当前仍没有已验证的 MIDI 握手。创建、存储、编辑工程和完整功能验收仍在进行。详见 [启动恢复记录](docs/startup-recovery-investigation.md) 与 [端口模型调查](docs/midi-host-environment.md)。
+**当前状态（第 10 轮）**：专用隔离实例已打开单独的 `MCP Device Test 20261110.cpr` 实验副本，前台未切换；当前实机 MIDI 状态请求仍超时。启动时序采样先观察到工程根节点，再观察到通知器和监听器登记；随后采样到的通知树为空，具体事件历史仍待确认。创建、存储、编辑工程和完整功能验收仍在进行。详见 [启动时序记录](docs/midi-startup-timeline.md) 与 [端口模型调查](docs/midi-host-environment.md)。
 
 ## 原生项目接口调查
 
