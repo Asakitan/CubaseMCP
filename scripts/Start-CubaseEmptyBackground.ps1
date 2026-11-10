@@ -11,7 +11,7 @@ if ($Background) {
     $out = Join-Path $Runtime "cubase-empty-$LaunchId.stdout.log"
     $err = Join-Path $Runtime "cubase-empty-$LaunchId.stderr.log"
     foreach ($path in @($out,$err)) { $f = [IO.File]::Open($path,[IO.FileMode]::CreateNew); $f.Dispose() }
-    $node = (Get-Command node.exe -CommandType Application).Source
+    $node = Get-Command node.exe -CommandType Application | Select-Object -First 1 -ExpandProperty Source
     $supervisor = Join-Path $PSScriptRoot 'start-empty-holder.cjs'
     $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow=[uint16]0; CreateFlags=[uint32]0x01000008 }
     $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{

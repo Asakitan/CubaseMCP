@@ -2,7 +2,9 @@
 param(
     [switch]$Background,
     [switch]$Stop,
-    [switch]$InspectClients
+    [switch]$InspectClients,
+    [string]$HolderStdoutPath,
+    [string]$HolderStderrPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,14 +64,14 @@ if ($Stop) {
 }
 
 if ($Background) {
-    $StartInfo = New-Object Diagnostics.ProcessStartInfo
-    $StartInfo.FileName = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $StartInfo.Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $PSCommandPath + '"'
-    $StartInfo.UseShellExecute = $false
-    $StartInfo.CreateNoWindow = $true
-    $Process = [Diagnostics.Process]::Start($StartInfo)
-    [PSCustomObject]@{ status = 'starting'; pid = $Process.Id; stateFile = $StatePath } | ConvertTo-Json
-    $Process.Dispose()
+    [IO.Directory]::CreateDirectory($StateDirectory) | Out-Null
+    $executable = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    Add-Type -Path (Join-Path $Root 'native\CubaseDesktop.cs')
+    $id = [Guid]::NewGuid().ToString('N')
+    $stdout = Join-Path $StateDirectory "midi-host-$id.stdout.log"
+    $stderr = Join-Path $StateDirectory "midi-host-$id.stderr.log"
+    $hostId = [CubaseAiMcp.CubaseDesktop]::StartDetachedHolder($executable,$PSCommandPath,$null,$stdout,$stderr,$Root)
+    [PSCustomObject]@{ status = 'starting'; pid = $hostId; stateFile = $StatePath } | ConvertTo-Json
     return
 }
 

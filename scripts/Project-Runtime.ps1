@@ -12,6 +12,26 @@ function Write-AtomicJson([string]$Path,$Value){
     try{$bytes=[Text.UTF8Encoding]::new($false).GetBytes(($Value|ConvertTo-Json -Depth 8 -Compress));$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
     if(Test-Path -LiteralPath $Path){[IO.File]::Replace($temporary,$Path,($Path+'.before-'+[guid]::NewGuid().ToString('N')))}else{[IO.File]::Move($temporary,$Path)}
 }
+function Wait-MidiPortsReady([int]$HostPid,[string]$StatePath,[int]$TimeoutMs=15000){
+    $deadline=[DateTime]::UtcNow.AddMilliseconds($TimeoutMs)
+    do {
+        $state=$null
+        if(Test-Path -LiteralPath $StatePath){
+            try{$state=Get-Content -LiteralPath $StatePath -Raw -Encoding UTF8|ConvertFrom-Json}catch{}
+        }
+        if($state -and $state.pid -eq $HostPid){
+            if($state.status -eq 'failed'){throw "MIDI port host failed: $($state.error)"}
+            if($state.status -eq 'ready'){
+                $doctor=& node.exe (Join-Path $root 'dist\src\doctor.js')
+                $ports=($doctor -join [Environment]::NewLine)|ConvertFrom-Json
+                if($ports.readyForHandshake){return $ports}
+            }
+        }
+        if(-not (Get-Process -Id $HostPid -ErrorAction SilentlyContinue)){throw 'MIDI port host exited before readiness.'}
+        Start-Sleep -Milliseconds 200
+    } while([DateTime]::UtcNow -lt $deadline)
+    throw 'MIDI port host did not become ready within 15 seconds.'
+}
 function Owned-Process {
     $all=@(Get-Process -Name 'Cubase*' -ErrorAction SilentlyContinue)
     if(-not $all.Count){return $null}
@@ -170,9 +190,9 @@ try {
     $doctor=& node.exe (Join-Path $root 'dist\src\doctor.js')
     $ports=($doctor -join [Environment]::NewLine)|ConvertFrom-Json
     if(-not $ports.readyForHandshake){
-        $execution='unknown';& (Join-Path $root 'scripts\Start-MidiPorts.ps1') -Background|Out-Null
-        $doctor=& node.exe (Join-Path $root 'dist\src\doctor.js');$ports=($doctor -join [Environment]::NewLine)|ConvertFrom-Json
-        if(-not $ports.readyForHandshake){throw 'Configured MIDI ports are not ready.'}
+        $execution='unknown'
+        $starting=& (Join-Path $root 'scripts\Start-MidiPorts.ps1') -Background|ConvertFrom-Json
+        $ports=Wait-MidiPortsReady -HostPid $starting.pid -StatePath $starting.stateFile
     }
     for($startupAttempt=0;$startupAttempt -lt 2;$startupAttempt++){
     $script:startupRunId=if($startupAttempt -eq 0){$operation.id}else{[guid]::NewGuid().ToString('N')}
