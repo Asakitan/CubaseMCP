@@ -18,7 +18,7 @@ test('large host maxima and error messages preserve compact handshake and bounde
         page.makeValueBinding = () => { throw new Error('unavailable-' + 'x'.repeat(5000)); };
     });
     assert.equal(harness.status.ok, true, JSON.stringify(harness.status));
-    assert.equal(harness.status.data.bridgeRevision, '2026-11-10-coverage-3.13');
+    assert.equal(harness.status.data.bridgeRevision, '2026-11-10-coverage-3.14');
     let offset = 0;
     const keys = [];
     do {
@@ -277,7 +277,7 @@ test('Control Room bindings use declared host maxima and report missing values',
 });
 
 test('mixer bank actions use fixed host actions and reject non-unit values', () => {
-    const harness = fixture((api, state, { host }) => {
+    const harness = mixerFixture((api, state, { host }) => {
         host.mMixConsole.makeMixerBankZone = name => {
             assert.equal(name, 'CubaseAI MCP');
             return { mAction: Object.fromEntries(['mPrevBank', 'mNextBank', 'mShiftLeft', 'mShiftRight', 'mResetBank'].map(key => [key, {}])) };
@@ -291,7 +291,7 @@ test('mixer bank actions use fixed host actions and reject non-unit values', () 
 test('mixer bank slots require observed identity and invalidate feedback on navigation or reassignment', () => {
     const ids = Array.from({ length: 8 }, (_, index) => `bank-track-${index}`);
     const values = [];
-    const harness = fixture((api, state, { host }) => {
+    const harness = mixerFixture((api, state, { host }) => {
         host.mMixConsole.makeMixerBankZone = () => {
             let index = 0;
             return { mAction: { mPrevBank: {}, mNextBank: {}, mShiftLeft: {}, mShiftRight: {}, mResetBank: {} },
@@ -311,11 +311,15 @@ test('mixer bank slots require observed identity and invalidate feedback on navi
     values[0].mVolume.mOnProcessValueChange(harness.device, harness.currentMapping(), 0.6);
     assert.equal(harness.call('controls.get', { key }).data.control.observed.channelUniqueId, ids[0]);
     assert.equal(harness.call('controls.set', { key, value: 0.5, expectedChannelUniqueId: ids[0] }).data.execution, 'submitted');
+    // Selected-track controls belong to the main page: their feedback is not admitted here.
     harness.emit('track.volume', 0.8);
-    assert.equal(harness.call('controls.get', { key: 'track.volume' }).data.control.observed.value, 0.8);
+    const offPage = harness.call('controls.get', { key: 'track.volume' }).data.control;
+    assert.equal(offPage.observed, null);
+    assert.equal(offPage.available, false);
+    assert.equal(offPage.error.code, 'PAGE_INACTIVE');
+    expectError(harness.call('controls.set', { key: 'track.volume', value: 0.5 }), 'PAGE_INACTIVE');
     assert.equal(harness.call('controls.set', { key: 'mixer.channel.0.selected', value: 1,
         expectedChannelUniqueId: ids[0] }).data.execution, 'submitted');
-    assert.equal(harness.call('controls.get', { key: 'track.volume' }).data.control.observed, null);
     expectError(harness.call('controls.set', { key: 'mixer.channel.0.meter.level', value: 1, expectedChannelUniqueId: ids[0] }), 'READ_ONLY');
     ids[0] = 'bank-new';
     expectError(harness.call('controls.set', { key, value: 0.5, expectedChannelUniqueId: 'bank-track-0' }), 'CHANNEL_CHANGED');
@@ -331,7 +335,7 @@ test('mixer bank slots require observed identity and invalidate feedback on navi
 
 test('bank EQ, filter and sends stay bound to observed channel identities', () => {
     const ids = Array.from({ length: 8 }, (_, i) => `id-${i}`), slots = [];
-    const harness = fixture((api, state, { host }) => {
+    const harness = mixerFixture((api, state, { host }) => {
         host.mMixConsole.makeMixerBankZone = () => {
             let index = 0;
             return { makeMixerBankChannel() {
@@ -367,7 +371,7 @@ test('bank EQ, filter and sends stay bound to observed channel identities', () =
 });
 
 test('bank send bounds reject excessive counts and missing collections', () => {
-    const harness = fixture((api, state, { host }) => {
+    const harness = mixerFixture((api, state, { host }) => {
         host.mMixConsole.makeMixerBankZone = () => ({ makeMixerBankChannel: () => ({
             mValue: {}, getUniqueIDString: () => 'id', getRuntimeID: () => 1,
             mSends: { getSize: () => 33, getByIndex: () => ({}) }
@@ -381,7 +385,7 @@ test('bank send bounds reject excessive counts and missing collections', () => {
 });
 
 test('bank sends do not starve later channel slots at supported host maxima', () => {
-    const harness = fixture((api, state, { host }) => {
+    const harness = mixerFixture((api, state, { host }) => {
         host.mMixConsole.makeMixerBankZone = () => {
             let index = 0;
             return { makeMixerBankChannel() {
@@ -402,7 +406,7 @@ test('bank sends do not starve later channel slots at supported host maxima', ()
 });
 
 test('nested bank groups report missing channel identity instead of branch readiness', () => {
-    const harness = fixture((api, state, { host }) => {
+    const harness = mixerFixture((api, state, { host }) => {
         host.mMixConsole.makeMixerBankZone = () => ({ makeMixerBankChannel: () => ({
             mValue: {}, mPreFilter: { mGain: {} }, getUniqueIDString: () => '', getRuntimeID: () => 1
         }) });
@@ -415,7 +419,7 @@ test('nested bank groups report missing channel identity instead of branch readi
 
 test('bank insert viewers require channel and plugin identities and navigation invalidates observations', () => {
     const ids = Array.from({ length: 8 }, (_, i) => `id-${i}`), viewers = {};
-    const harness = fixture((api, state, { host }) => {
+    const harness = mixerFixture((api, state, { host }) => {
         api.mDefaults.getNumberOfInsertEffectSlots = () => 1;
         host.mMixConsole.makeMixerBankZone = () => {
             let i = 0;
@@ -470,7 +474,7 @@ test('bank insert viewers require channel and plugin identities and navigation i
 });
 
 test('bank insert viewer missing host and excessive slot count report unavailable', () => {
-    const harness = fixture((api, state, { host }) => {
+    const harness = mixerFixture((api, state, { host }) => {
         api.mDefaults.getNumberOfInsertEffectSlots = () => 17;
         host.mMixConsole.makeMixerBankZone = () => ({ makeMixerBankChannel: () => ({
             mValue: {}, getUniqueIDString: () => 'id', getRuntimeID: () => 1
@@ -490,7 +494,7 @@ test('bank insert viewer missing host and excessive slot count report unavailabl
 });
 
 test('bank insert viewer indexed slots remain available on the final bank channel', () => {
-    const harness = fixture((api, state, { host }) => {
+    const harness = mixerFixture((api, state, { host }) => {
         api.mDefaults.getNumberOfInsertEffectSlots = () => 16;
         host.mMixConsole.makeMixerBankZone = () => {
             let index = 0;
@@ -517,19 +521,21 @@ test('bank insert viewer indexed slots remain available on the final bank channe
 });
 
 test('bank channel missing identities and wrong identifier fields fail closed', () => {
-    const harness = fixture((api, state, { host }) => {
+    const harness = mixerFixture((api, state, { host }) => {
         host.mMixConsole.makeMixerBankZone = () => ({ makeMixerBankChannel: () => ({
             mValue: { mVolume: {} }, getUniqueIDString: () => '', getRuntimeID: () => 1
         }) });
     });
     expectError(harness.call('controls.get', { key: 'mixer.channel.0.volume' }), 'NO_CHANNEL');
     expectError(harness.call('controls.set', { key: 'mixer.channel.0.volume', value: 0.5 }), 'CONFIRMATION_REQUIRED');
+    harness.usePage('main');
     expectError(harness.call('controls.set', { key: 'track.volume', value: 0.5, expectedChannelUniqueId: 'id' }), 'INVALID_ARGUMENT');
+    expectError(harness.call('controls.set', { key: 'mixer.channel.0.volume', value: 0.5, expectedChannelUniqueId: 'id' }), 'PAGE_INACTIVE');
 });
 
 test('bank slot runtime replacement invalidates admission even when its unique ID is unchanged', () => {
     let runtimeId = 100;
-    const harness = fixture((api, state, { host }) => {
+    const harness = mixerFixture((api, state, { host }) => {
         host.mMixConsole.makeMixerBankZone = () => ({ makeMixerBankChannel: () => ({
             mValue: { mVolume: {} }, getUniqueIDString: () => 'same-id', getRuntimeID: () => runtimeId
         }) });
@@ -542,7 +548,7 @@ test('bank slot runtime replacement invalidates admission even when its unique I
 });
 
 test('bank discovery reports an empty host slot as unavailable', () => {
-    const harness = fixture((api, state, { host }) => {
+    const harness = mixerFixture((api, state, { host }) => {
         host.mMixConsole.makeMixerBankZone = () => ({ makeMixerBankChannel: () => ({
             mValue: { mVolume: {} }, getUniqueIDString: () => '', getRuntimeID: () => 1
         }) });
@@ -556,7 +562,7 @@ test('bank discovery reports an empty host slot as unavailable', () => {
 });
 
 test('a missing filtered action binding is unavailable rather than submitted', () => {
-    const harness = fixture((api, state, { host, page }) => {
+    const harness = mixerFixture((api, state, { host, page }) => {
         host.mMixConsole.makeMixerBankZone = () => ({ mAction: { mNextBank: {} } });
         page.makeActionBinding = () => ({ filterByValue() { return null; } });
     });
@@ -582,7 +588,7 @@ function fixture(configure = () => {}, logger) {
     const nodes = new Map();
     const state = {
         version: '16.0.5', writes: [], lockWrites: [], pluginWrites: [], commandRuns: [], surfaces: {}, tempoWrites: [], timeWrites: [], trackMoves: [],
-        accesses: {}, portNames: [], detectionNames: [], frames: [], replies: [],
+        accesses: {}, portNames: [], detectionNames: [], frames: [], replies: [], pageNames: [],
         commandAllowed: true, pluginAccepted: true, selectedTrackId: 'track-uid-2'
     };
     function node(objectId, children = []) {
@@ -773,13 +779,20 @@ function fixture(configure = () => {}, logger) {
     page.mAction = { mActivate: { trigger() { switchPage(page); } } };
     const savePage = { makeCommandBinding: page.makeCommandBinding,
         mAction: { mActivate: { trigger() { switchPage(savePage); } } } };
+    // The fixture shares one host model between the main and mixer pages; real pages own separate host objects.
+    const mixerPage = { mHostAccess: host,
+        makeActionBinding(...values) { return page.makeActionBinding(...values); },
+        makeValueBinding(...values) { return page.makeValueBinding(...values); },
+        makeCommandBinding(...values) { return page.makeCommandBinding(...values); },
+        mAction: { mActivate: { trigger() { switchPage(mixerPage); } } } };
+    const pagesByName = { 'CubaseAI MCP': page, 'CubaseAI MCP Save': savePage, 'CubaseAI MCP Mixer': mixerPage };
     const driver = {
         mPorts: {
             makeMidiInput(name) { state.portNames.push(name); return input; },
             makeMidiOutput(name) { state.portNames.push(name); return output; }
         },
         makeDetectionUnit() { return detection; },
-        mMapping: { makePage(name) { assert.ok(['CubaseAI MCP', 'CubaseAI MCP Save'].includes(name)); return name === 'CubaseAI MCP' ? page : savePage; } },
+        mMapping: { makePage(name) { assert.ok(pagesByName[name], name); state.pageNames.push(name); return pagesByName[name]; } },
         mSurface: {
             makeButton(x, y, w, h) {
                 assert.deepEqual([x, y, w, h], [0, 0, 1, 1]);
@@ -835,7 +848,7 @@ function fixture(configure = () => {}, logger) {
     function tick() {
         const before = state.frames.length;
         activePage.mOnIdle(device, mapping);
-        assert.ok(state.frames.length - before <= 4, 'frame budget exceeded');
+        assert.ok(state.frames.length - before <= 12, 'frame budget exceeded');
     }
     function transact(op, args, requestId, deadline) {
         const start = state.replies.length;
@@ -856,11 +869,18 @@ function fixture(configure = () => {}, logger) {
     activate();
     const status = transact('bridge.status', {});
     const harness = {
-        ...state, state, api, bridge, host, page, savePage, device, nodes, receive, tick, transact, activate, status,
+        ...state, state, api, bridge, host, page, savePage, mixerPage, device, nodes, receive, tick, transact, activate, status,
         currentMapping() { return mapping; },
+        currentPage() { return activePage; },
         call(op, args = {}, id) { return transact(op, { session: harness.session, ...args }, id); },
+        usePage(key) {
+            const reply = harness.call('pages.activate', { page: key });
+            assert.equal(reply.ok, true, JSON.stringify(reply));
+            harness.session = reply.data.session;
+            return reply.data;
+        },
         emit(key, amount) { state.surfaces[key].mOnProcessValueChange(device, amount, 0); },
-        deactivate() { page.mOnDeactivate(device, mapping); },
+        deactivate() { activePage.mOnDeactivate(device, mapping); },
         changed(root = 'trackSelection') { state.accesses[root].mOnObjectWillBeRemoved(device, mapping, host[`m${root[0].toUpperCase()}${root.slice(1)}`].base); }
     };
     harness.session = status.ok ? status.data.session : undefined;
@@ -879,6 +899,13 @@ test('controller lifecycle telemetry records only bounded stages, not MIDI paylo
     assert.ok(logs.length <= 8);
     assert.ok(logs.every(message => !message.includes(harness.session)));
 });
+
+// Mixer bank controls live on the separate mixer mapping page.
+function mixerFixture(configure, logger) {
+    const harness = fixture(configure, logger);
+    harness.usePage('mixer');
+    return harness;
+}
 
 function observeParameters(harness) {
     assert.equal(harness.call('objects.list', { root: 'trackSelection' }).ok, true);
@@ -913,14 +940,31 @@ test('production remote modules parse as ES5', () => {
 });
 
 test('command definitions are a fixed allowlist', () => {
-    assert.deepEqual(commands.map(command => [command.key, command.category, command.name]), [
+    const keys = commands.map(command => command.key);
+    assert.equal(new Set(keys).size, keys.length);
+    assert.equal(new Set(commands.map(command => command.category + '\u0000' + command.name)).size, commands.length);
+    assert.ok(commands.length >= 150 && commands.length <= 256);
+    assert.deepEqual(commands.filter(command => ['edit.undo', 'edit.redo', 'midi.quantize', 'project.save'].includes(command.key))
+        .map(command => [command.key, command.category, command.name]), [
         ['edit.undo', 'Edit', 'Undo'],
         ['edit.redo', 'Edit', 'Redo'],
-        ['midi.quantize', 'Quantize Category', 'Quantize'],
+        ['midi.quantize', 'MIDI', 'Quantize'],
         ['project.save', 'File', 'Save']
     ]);
     assert.ok(Object.isFrozen(commands));
-    assert.ok(commands.every(command => Object.isFrozen(command) && command.context));
+    assert.ok(commands.every(command => Object.isFrozen(command) && command.context && command.group &&
+        /^[a-z][A-Za-z0-9]*(\.[A-Za-z0-9]+)+$/.test(command.key) && ['verified', 'submitted', 'unverified'].includes(command.live)));
+    // Commands that open a dialog or need typed input are never bound.
+    const forbidden = /^(Save As|Open|New|Close|Quit|Revert|Import |Export MIDI File|Export Audio Mixdown$|Save as Template|Preferences|Key Commands|Setup|Repeat$|Transpose$|Velocity$|Delete Notes|Merge MIDI|Dissolve Part$|Detect Silence|Bounce|Rename|Input )/;
+    // The export window is the one host window that a tool opens on purpose; it is reachable only through that tool.
+    assert.deepEqual(commands.filter(command => !command.tool && command.category !== 'Audio' && forbidden.test(command.name)).map(command => command.key), []);
+    assert.deepEqual(commands.filter(command => command.tool).map(command => [command.key, command.tool]), [
+        ['track.removeSelected', 'cubase_track_edit'], ['export.openMixdownWindow', 'cubase_audio_export'], ['export.perform', 'cubase_audio_export']]);
+    // Commands that opened a window in the session-30 live probe stay out of the table.
+    const opened = ['AddTrack\u0000Audio', 'AddTrack\u0000Instrument', 'AddTrack\u0000MIDI', 'AddTrack\u0000FX Channel', 'AddTrack\u0000Group Channel',
+        'AddTrack\u0000Folder', 'AddTrack\u0000Ruler', 'Edit\u0000Insert Tempo Event at Cursor', 'File\u0000Export Audio Mixdown Simple',
+        'Mixer\u0000Add Track To Selected: Group Channel', 'Mixer\u0000Add Track To Selected: FX Channel'];
+    assert.deepEqual(commands.filter(command => opened.includes(command.category + '\u0000' + command.name)).map(command => command.key), []);
     acorn.parse(fs.readFileSync(path.join(__dirname, '../remote/commands.js'), 'utf8'), {
         ecmaVersion: 5, sourceType: 'script'
     });
@@ -933,12 +977,20 @@ test('factory registers exact ports and reports only real app and root data', ()
     assert.deepEqual(harness.detectionNames, harness.portNames);
     const status = harness.status.data;
     assert.equal(status.appVersion, '16.0.5');
-    assert.equal(status.bridgeRevision, '2026-11-10-coverage-3.13');
+    assert.equal(status.bridgeRevision, '2026-11-10-coverage-3.14');
     assert.deepEqual(status.policy, { backgroundOnly: true, fallback: false });
     assert.equal(status.discovery.controlTotal, 135);
     assert.equal(harness.call('objects.list', { root: 'trackSelection' }).data.baseObject.uniqueIdString, 'uid-1');
     assert.ok(listAll(harness).controls.every(control => control.observed === null));
-    assert.deepEqual(harness.call('commands.list').data.commands.map(command => command.key), commands.map(command => command.key));
+    const listedCommands = [];
+    for (let offset = 0; offset !== null;) {
+        const listing = harness.call('commands.list', { offset, limit: 64 }).data;
+        listedCommands.push(...listing.commands.map(command => command.key));
+        offset = listing.nextOffset;
+    }
+    assert.deepEqual(listedCommands, commands.map(command => command.key));
+    assert.deepEqual(harness.pageNames, ['CubaseAI MCP', 'CubaseAI MCP Mixer', 'CubaseAI MCP Save']);
+    assert.equal(status.page, 'main');
 });
 
 test('requests execute only on idle and all non-status operations require the active session', () => {
@@ -1167,6 +1219,9 @@ test('only confirmed allowlisted commands with canPerform true pulse their bound
     const response = harness.call('commands.execute', { key: 'edit.undo', confirmCurrentSelection: true });
     assert.equal(response.data.execution, 'submitted');
     assert.deepEqual(harness.commandRuns, ['Undo']);
+    // The press stays held until the next idle callback releases it.
+    assert.deepEqual(harness.writes.map(write => [write.key, write.value]), [['command.edit.undo', 1]]);
+    harness.tick();
     assert.deepEqual(harness.writes.map(write => [write.key, write.value]), [['command.edit.undo', 1], ['command.edit.undo', 0]]);
     delete harness.state.surfaces['command.edit.redo'].command.canPerform;
     expectError(harness.call('commands.execute', { key: 'edit.redo', confirmCurrentSelection: true }), 'API_UNAVAILABLE');
@@ -1187,6 +1242,40 @@ test('only confirmed allowlisted commands with canPerform true pulse their bound
     assert.equal(finished.returnedToMain, true); harness.session = finished.session;
     assert.deepEqual(harness.commandRuns, ['Undo']);
     assert.equal(harness.writes.some(write => write.key === 'command.project.save'), false);
+});
+
+test('commands press and release in separate idle callbacks and count host binding events', () => {
+    const harness = fixture();
+    const surface = harness.state.surfaces['command.edit.undo'];
+    const writes = () => harness.writes.filter(write => write.key === 'command.edit.undo').map(write => write.value);
+    const first = harness.call('commands.execute', { key: 'edit.undo', confirmCurrentSelection: true }).data;
+    assert.equal(first.bindingEventsBefore, 0);
+    surface.command.mOnValueChange(harness.device, harness.currentMapping(), 1);
+    const observed = harness.call('commands.get', { key: 'edit.undo' }).data.command;
+    assert.equal(observed.bindingEvents, 1);
+    assert.equal(observed.lastRequestId, first.requestId);
+    assert.equal(observed.context.length > 0, true);
+    assert.deepEqual(writes(), [1, 0]);
+    surface.command.mOnValueChange(harness.device, harness.currentMapping(), 0);
+    assert.equal(harness.call('commands.get', { key: 'edit.undo' }).data.command.bindingEvents, 1);
+    // Two queued executions of one command never share an idle callback with its release.
+    const start = harness.replies.length;
+    const ids = [1, 2].map(() => harness.receive('commands.execute', { session: harness.session, key: 'edit.undo', confirmCurrentSelection: true }));
+    harness.tick();
+    assert.deepEqual(writes(), [1, 0, 1]);
+    harness.tick();
+    assert.deepEqual(writes(), [1, 0, 1, 0]);
+    assert.equal(harness.replies.slice(start).filter(reply => ids.includes(reply.id)).length, 1);
+    harness.tick();
+    assert.deepEqual(writes(), [1, 0, 1, 0, 1]);
+    assert.equal(harness.replies.slice(start).filter(reply => ids.includes(reply.id) && reply.ok).length, 2);
+    assert.deepEqual(harness.commandRuns, ['Undo', 'Undo', 'Undo']);
+    const listed = harness.call('commands.list', { group: 'marker', limit: 64 }).data;
+    assert.equal(listed.total, listed.commands.length);
+    assert.ok(listed.commands.every(command => command.group === 'marker' && command.context === undefined));
+    assert.ok(listed.groups.track > 20);
+    expectError(harness.call('commands.get', { key: 'file.quit' }), 'COMMAND_NOT_ALLOWED');
+    expectError(harness.call('commands.list', { group: '' }), 'INVALID_ARGUMENT');
 });
 
 test('tempo arriving immediately before activation is adopted only for that mapping', () => {
@@ -1366,8 +1455,8 @@ test('native parameter read values are not forced into a normalized interval', (
 test('extended EQ, filter, send and metronome controls use actual host bindings', () => {
     const harness = fixture();
     const listed = listAll(harness);
-    assert.deepEqual(listed.groups['track.send'], { available: true, count: 2 });
-    assert.deepEqual(listed.groups['track.cueSend'], { available: true, count: 1 });
+    assert.deepEqual(listed.groups['track.send'], { available: true, count: 2, page: 'main' });
+    assert.deepEqual(listed.groups['track.cueSend'], { available: true, count: 1, page: 'main' });
     for (const key of ['track.filter.gain', 'track.filter.lowCutFrequency', 'track.eq.1.gain',
         'track.eq.4.filterType', 'track.send.0.level', 'track.send.1.prePost', 'transport.metronomeLevel',
         'track.cueSend.0.pan', 'track.cueSend.bypass']) {
@@ -1560,6 +1649,7 @@ test('instrument and bank strip parameter pages bind all slots with guarded feed
                 { expectedChannelUniqueId: ids[index] }]);
     }
     for (const [group, slot, guard] of targets) {
+        h.usePage(group.startsWith('mixer.') ? 'mixer' : 'main');
         const key = group + '.parameter.7';
         for (let i = 0; i < 8; i++) assert.equal(h.call('controls.get', { key: group + '.parameter.' + i }).data.control.available, true);
         observePlugin(h, slot);
@@ -1613,8 +1703,7 @@ test('plugin page navigation and channel or track runtime changes revoke identit
     const trackKey = 'track.instrument.parameter.7', bankKey = 'mixer.channel.7.instrument.parameter.7';
     const tg = { expectedTrackUniqueId: 'track-uid-2', expectedPluginIdentity: pluginIdentity };
     const bg = { expectedChannelUniqueId: f.ids[7], expectedPluginIdentity: pluginIdentity };
-    h.call('controls.get', { key: bankKey });
-    observePlugin(h, f.trackSlot); observePlugin(h, f.slots[7].mInstrumentPluginSlot);
+    observePlugin(h, f.trackSlot);
     expectError(h.call('controls.set', { key: 'track.instrument.bank.next', value: 0.5, ...tg }), 'INVALID_VALUE');
     h.emit(trackKey, 0.2);
     assert.equal(h.call('controls.set', { key: 'track.instrument.bank.next', value: 1, ...tg }).data.execution, 'submitted');
@@ -1622,6 +1711,9 @@ test('plugin page navigation and channel or track runtime changes revoke identit
     expectError(h.call('controls.set', { key: trackKey, value: 0.2, ...tg }), 'PLUGIN_UNOBSERVED');
     observePlugin(h, f.trackSlot); f.setTrackRuntime(3);
     expectError(h.call('controls.set', { key: trackKey, value: 0.2, ...tg }), 'PLUGIN_UNOBSERVED');
+    h.usePage('mixer');
+    h.call('controls.get', { key: bankKey });
+    observePlugin(h, f.slots[7].mInstrumentPluginSlot);
     h.emit(bankKey, 0.3);
     assert.equal(h.call('controls.set', { key: 'mixer.channel.7.instrument.bank.reset', value: 1, ...bg }).data.execution, 'submitted');
     assert.equal(h.call('controls.get', { key: bankKey }).data.control.observed, null);
@@ -1655,4 +1747,269 @@ test('plugin get preserves long identity fields for exact guards without expandi
     const listed = listAll(h).controls.find(control => control.key === key);
     if (listed.pluginIdentity) for (const field of Object.keys(identity))
         assert.ok(listed.pluginIdentity[field].length <= 129);
+});
+
+// ---- session 30: channel overview, transport object, pages, response replay ----------------
+
+function channelFixture() {
+    const harness = fixture();
+    const parameters = tags => tags.map(tag => ({ tag, value: 0, display: `d${tag}`, locked: false }));
+    const make = (objectId, typeName, title, tags, children = []) => harness.nodes.set(objectId, {
+        objectId, children, uniqueIdString: `uid-${objectId}`, uniqueName: typeName, title, typeName, color: [0, 0, 0, 1], parameters: parameters(tags) });
+    make(11, 'AudioChannel', 'Vocals', [4013, 4014, 1024, 4000, 1025, 1027, 1028, 4101, 4102, 4002, 4001, 4113], [13, 14]);
+    make(13, 'InputFilter', 'Input Filter', [4201]);
+    make(14, 'Panner', 'Panner', [4201, 4204]);
+    make(12, 'MidiChannel', 'Bass', [1024, 4014, 4013, 1025, 1026, 1027, 1028, 4002, 4001, 4000, 4006, 4007, 4008]);
+    // Cubase lists the last channel twice once tracks exist.
+    harness.nodes.get(10).children = [11, 12, 12];
+    // Names and dB texts are not percentages: keep the process value and store the text as given.
+    harness.accesses.mixConsole.setParameterDisplayValue = (mapping, objectId, tag, value) => {
+        assert.equal(mapping, harness.currentMapping());
+        harness.writes.push({ kind: 'display', objectId, tag, value });
+        harness.nodes.get(objectId).parameters.find(item => item.tag === tag).display = value;
+    };
+    return harness;
+}
+
+test('channel overview lists each channel once and admits the parameters behind its fields', () => {
+    const harness = channelFixture();
+    const listed = harness.call('channels.list').data;
+    assert.equal(listed.total, 3);
+    assert.equal(listed.duplicatesSkipped, 1);
+    assert.equal(listed.nextOffset, null);
+    assert.deepEqual(listed.items.map(item => [item.objectId, item.typeName, item.title, item.uniqueIdString]),
+        [[11, 'AudioChannel', 'Vocals', 'uid-11'], [12, 'MidiChannel', 'Bass', 'uid-12']]);
+    const [audio, midi] = listed.items;
+    // An audio channel carries its pan on the Panner child, not on the input filter that shares the tag.
+    assert.deepEqual(audio.fields.pan, { objectId: 14, tag: 4201, value: 0, display: 'd4201', writable: true });
+    assert.deepEqual(midi.fields.pan, { objectId: 12, tag: 1026, value: 0, display: 'd1026', writable: true });
+    assert.equal(audio.fields.midiChannel, null);
+    assert.deepEqual([audio.fields.input.tag, audio.fields.output.tag, midi.fields.input.tag, midi.fields.output.tag], [4101, 4102, 4007, 4008]);
+    assert.equal(midi.fields.output.writable, false);
+    assert.equal(midi.fields.freeze, null);
+    // Listed field parameters are admitted for the generic parameter operations.
+    assert.equal(harness.call('parameters.set', { root: 'mixConsole', objectId: 14, tag: 4201, mode: 'normalized', value: 0.25 }).ok, true);
+    assert.equal(harness.call('parameters.get', { root: 'mixConsole', objectId: 12, tag: 1024 }).data.parameter.display, 'd1024');
+    expectError(harness.call('parameters.get', { root: 'mixConsole', objectId: 13, tag: 4201 }), 'OBJECT_UNOBSERVED');
+    const paged = harness.call('channels.list', { offset: 1, limit: 1 }).data;
+    assert.deepEqual([paged.items.length, paged.items[0].objectId, paged.nextOffset], [1, 12, 2]);
+    assert.deepEqual(harness.call('channels.list', { offset: 2, limit: 1 }).data.items, []);
+    harness.usePage('mixer');
+    expectError(harness.call('channels.list'), 'PAGE_INACTIVE');
+});
+
+test('channel field writes need the listed identity and use the setter that matches the value', () => {
+    const harness = channelFixture();
+    const base = { objectId: 12, expectedUniqueId: 'uid-12' };
+    expectError(harness.call('channels.set', { ...base, field: 'mute', value: true }), 'OBJECT_UNOBSERVED');
+    harness.call('channels.list');
+    expectError(harness.call('channels.set', { objectId: 12, field: 'mute', value: true }), 'CONFIRMATION_REQUIRED');
+    expectError(harness.call('channels.set', { ...base, expectedUniqueId: 'uid-11', field: 'mute', value: true }), 'CHANNEL_CHANGED');
+    expectError(harness.call('channels.set', { ...base, field: 'gain', value: 1 }), 'INVALID_ARGUMENT');
+    expectError(harness.call('channels.set', { ...base, field: 'output', value: 1 }), 'READ_ONLY');
+    expectError(harness.call('channels.set', { ...base, field: 'mute', value: 1 }), 'INVALID_VALUE');
+    expectError(harness.call('channels.set', { ...base, field: 'name', value: '' }), 'INVALID_VALUE');
+    expectError(harness.call('channels.set', { ...base, field: 'name', value: 'line\nbreak' }), 'INVALID_VALUE');
+    expectError(harness.call('channels.set', { ...base, field: 'volume', value: 1.5 }), 'INVALID_VALUE');
+    expectError(harness.call('channels.set', { objectId: 11, expectedUniqueId: 'uid-11', field: 'midiChannel', value: 1 }), 'READ_ONLY');
+    assert.equal(harness.writes.length, 0);
+    const renamed = harness.call('channels.set', { ...base, field: 'name', value: 'Bass Line' }).data;
+    assert.equal(renamed.execution, 'submitted');
+    assert.deepEqual(renamed.parameter, { objectId: 12, tag: 1024 });
+    assert.equal(renamed.before.display, 'd1024');
+    assert.equal(renamed.after.display, 'Bass Line');
+    assert.equal(harness.call('channels.set', { ...base, field: 'mute', value: true }).data.after.value, 1);
+    assert.equal(harness.call('channels.set', { ...base, field: 'selected', value: false }).ok, true);
+    assert.equal(harness.call('channels.set', { ...base, field: 'volume', value: '-6' }).ok, true);
+    assert.equal(harness.call('channels.set', { ...base, field: 'volume', value: 0.5 }).ok, true);
+    assert.equal(harness.call('channels.set', { objectId: 11, expectedUniqueId: 'uid-11', field: 'pan', value: 0.25 }).ok, true);
+    assert.deepEqual(harness.writes, [
+        { kind: 'display', objectId: 12, tag: 1024, value: 'Bass Line' },
+        { kind: 'process', objectId: 12, tag: 1027, value: 1 },
+        { kind: 'process', objectId: 12, tag: 4000, value: 0 },
+        { kind: 'display', objectId: 12, tag: 1025, value: '-6' },
+        { kind: 'process', objectId: 12, tag: 1025, value: 0.5 },
+        { kind: 'process', objectId: 14, tag: 4201, value: 0.25 }
+    ]);
+    harness.nodes.get(12).parameters.find(item => item.tag === 1028).locked = true;
+    expectError(harness.call('channels.set', { ...base, field: 'solo', value: true }), 'PARAMETER_LOCKED');
+    // A channel without the field reports that instead of writing a neighbouring parameter.
+    harness.nodes.get(11).children = [13];
+    harness.call('channels.list');
+    expectError(harness.call('channels.set', { objectId: 11, expectedUniqueId: 'uid-11', field: 'pan', value: 0.5 }), 'FIELD_UNAVAILABLE');
+    assert.equal(harness.writes.length, 6);
+});
+
+function transportFixture(titles = {}) {
+    const harness = fixture();
+    const tags = { start: 4015, stop: 4016, record: 4019, cycle: 4022, punchIn: 4020, punchOut: 4021, time: 4023, time2: 4101,
+        timeFormat: 4025, timeFormat2: 4102, signature: 4027, cycleLeftTime: 4030, cycleRightTime: 4031, cycleDuration: 4051,
+        metronomeOn: 4099, precountOn: 4100, returnToZero: 1, gotoEnd: 2, gotoNextMarker: 3, gotoPrevMarker: 4, stepBar: 5, stepBackBar: 6 };
+    const displays = { time: '5. 1. 1.  0', time2: '0:00:08.000', timeFormat: 'Bars+Beats', timeFormat2: 'Seconds', signature: '4/4',
+        cycleLeftTime: '1. 1. 1.  0', cycleRightTime: '9. 1. 1.  0', cycleDuration: '8. 0. 0.  0' };
+    const values = { stop: 1, precountOn: 1 };
+    const names = Object.keys(tags);
+    harness.nodes.get(20).parameters = names.map(name => ({ tag: tags[name], value: values[name] || 0, display: displays[name] || 'Off', locked: false }));
+    harness.accesses.transport.getParameterTitle = (mapping, objectId, tag) => {
+        const name = names.find(candidate => tags[candidate] === tag);
+        return titles[name] || name;
+    };
+    return { harness, tags };
+}
+
+test('transport state reads the titled transport parameters and writes actions and switches once', () => {
+    const { harness, tags } = transportFixture();
+    harness.host.mTransport.mTimeDisplay.mOnChangeTempoBPM(harness.device, harness.currentMapping(), 96);
+    const state = harness.call('transport.state').data;
+    assert.deepEqual({ playing: state.playing, stopped: state.stopped, recording: state.recording, cycle: state.cycle,
+        metronome: state.metronome, precount: state.precount, signature: state.signature, tempo: state.tempo, baseObjectId: state.baseObjectId },
+        { playing: false, stopped: true, recording: false, cycle: false, metronome: false, precount: true, signature: '4/4', tempo: { bpm: 96 }, baseObjectId: 20 });
+    assert.deepEqual(state.position, { primary: '5. 1. 1.  0', secondary: '0:00:08.000', primaryFormat: 'Bars+Beats', secondaryFormat: 'Seconds' });
+    assert.deepEqual([state.cycleLeft, state.cycleRight, state.cycleDuration], ['1. 1. 1.  0', '9. 1. 1.  0', '8. 0. 0.  0']);
+    assert.equal(harness.writes.length, 0);
+    expectError(harness.call('transport.action', { action: 'record' }), 'INVALID_ARGUMENT');
+    expectError(harness.call('transport.set', { field: 'tempo', value: 100 }), 'INVALID_ARGUMENT');
+    expectError(harness.call('transport.set', { field: 'cycle', value: 1 }), 'INVALID_VALUE');
+    expectError(harness.call('transport.set', { field: 'signature', value: '3-4' }), 'INVALID_VALUE');
+    expectError(harness.call('transport.set', { field: 'signature', value: '4/3' }), 'INVALID_VALUE');
+    assert.equal(harness.writes.length, 0);
+    const started = harness.call('transport.action', { action: 'start' }).data;
+    assert.equal(started.execution, 'submitted');
+    assert.equal(started.before.playing, false);
+    const cycle = harness.call('transport.set', { field: 'cycle', value: true }).data;
+    assert.deepEqual([cycle.before.cycle, cycle.after.cycle], [false, true]);
+    const signature = harness.call('transport.set', { field: 'signature', value: '3/4' }).data;
+    assert.deepEqual([signature.before.signature, signature.after.signature], ['4/4', '3/4']);
+    assert.equal(harness.call('transport.set', { field: 'precount', value: false }).ok, true);
+    assert.deepEqual(harness.writes, [
+        { kind: 'process', objectId: 20, tag: tags.start, value: 1 },
+        { kind: 'process', objectId: 20, tag: tags.cycle, value: 1 },
+        { kind: 'display', objectId: 20, tag: tags.signature, value: '3/4' },
+        { kind: 'process', objectId: 20, tag: tags.precountOn, value: 0 }
+    ]);
+    // The admitted transport tags also serve the generic parameter operations.
+    assert.equal(harness.call('parameters.get', { root: 'transport', objectId: 20, tag: tags.time }).data.parameter.display, '5. 1. 1.  0');
+});
+
+test('a transport parameter with a different title is treated as absent', () => {
+    const { harness } = transportFixture({ metronomeOn: 'somethingElse', gotoEnd: 'other' });
+    const state = harness.call('transport.state').data;
+    assert.equal(state.metronome, null);
+    assert.equal(state.precount, true);
+    expectError(harness.call('transport.set', { field: 'metronome', value: true }), 'API_UNAVAILABLE');
+    expectError(harness.call('transport.action', { action: 'gotoEnd' }), 'API_UNAVAILABLE');
+    assert.equal(harness.writes.length, 0);
+});
+
+test('status samples one command so a blocked host is visible, and composite-only commands need their tool', () => {
+    const harness = fixture();
+    assert.deepEqual(harness.status.data.commandGate, { key: 'transport.cycle', canPerform: true });
+    harness.state.commandAllowed = false;
+    assert.deepEqual(harness.transact('bridge.status', {}).data.commandGate, { key: 'transport.cycle', canPerform: false });
+    harness.state.commandAllowed = true;
+    const info = harness.call('commands.get', { key: 'track.removeSelected' }).data.command;
+    assert.equal(info.tool, 'cubase_track_edit');
+    expectError(harness.call('commands.execute', { key: 'track.removeSelected', confirmCurrentSelection: true }), 'COMPOSITE_REQUIRED');
+    expectError(harness.call('commands.execute', { key: 'track.removeSelected', confirmCurrentSelection: true, tool: 'other' }), 'COMPOSITE_REQUIRED');
+    assert.deepEqual(harness.commandRuns, []);
+    assert.equal(harness.call('commands.execute', { key: 'track.removeSelected', confirmCurrentSelection: true, tool: 'cubase_track_edit' }).ok, true);
+    assert.deepEqual(harness.commandRuns, ['Remove Selected Tracks']);
+    harness.usePage('mixer');
+    assert.equal(harness.transact('bridge.status', {}).data.commandGate, null);
+});
+
+test('pages are listed, activation returns a new session and main-only operations wait for the main page', () => {
+    const harness = fixture();
+    const listed = harness.call('pages.list').data;
+    assert.equal(listed.active, 'main');
+    assert.deepEqual(listed.pages.map(page => [page.key, page.available, page.active]), [['main', true, true], ['mixer', true, false]]);
+    assert.ok(listed.pages[0].controlTotal > 0 && listed.pages[1].controlTotal > 0);
+    assert.equal(listed.activation.page, 'main');
+    const same = harness.call('pages.activate', { page: 'main' }).data;
+    assert.deepEqual([same.changed, same.session], [false, harness.session]);
+    expectError(harness.call('pages.activate', { page: 'save' }), 'INVALID_ARGUMENT');
+    const origin = harness.session;
+    const switched = harness.usePage('mixer');
+    assert.deepEqual([switched.page, switched.changed, switched.originSession, switched.originPage], ['mixer', true, origin, 'main']);
+    assert.notEqual(switched.session, origin);
+    expectError(harness.transact('pages.list', { session: origin }), 'STALE_SESSION');
+    assert.equal(harness.call('pages.list').data.active, 'mixer');
+    for (const op of ['objects.list', 'commands.list', 'track.current', 'transport.get', 'transport.state', 'channels.list']) {
+        expectError(harness.call(op, { root: 'trackSelection' }), 'PAGE_INACTIVE');
+    }
+    assert.equal(harness.call('host.info').ok, true);
+    assert.equal(harness.call('controls.list').ok, true);
+    harness.usePage('main');
+    assert.equal(harness.call('objects.list', { root: 'trackSelection' }).ok, true);
+});
+
+test('a page that delivered host feedback but no surface feedback refuses binding writes', () => {
+    const harness = fixture();
+    const host = harness.surfaces['track.volume'].hostValue;
+    for (let count = 0; count < 63; count++) host.mOnProcessValueChange(harness.device, harness.currentMapping(), count / 100);
+    assert.equal(harness.call('pages.list').data.activation.surfaceInput, 'unobserved');
+    assert.equal(harness.call('controls.set', { key: 'track.volume', value: 0.5 }).ok, true);
+    // Each write above echoed through the fixture surface, so start again from a fresh activation.
+    harness.activate();
+    harness.session = harness.transact('bridge.status', {}).data.session;
+    const again = harness.surfaces['track.volume'].hostValue;
+    for (let count = 0; count < 64; count++) again.mOnProcessValueChange(harness.device, harness.currentMapping(), count / 100);
+    const activation = harness.call('pages.list').data.activation;
+    assert.deepEqual([activation.hostCallbacks, activation.surfaceCallbacks, activation.surfaceInput], [64, 0, 'stalled']);
+    const before = harness.writes.length;
+    expectError(harness.call('controls.set', { key: 'track.volume', value: 0.5 }), 'SURFACE_INACTIVE');
+    expectError(harness.call('commands.execute', { key: 'edit.undo', confirmCurrentSelection: true }), 'SURFACE_INACTIVE');
+    assert.equal(harness.writes.length, before);
+});
+
+test('no bridge operation unloads a plug-in, because the host call for it prompts', () => {
+    const harness = fixture();
+    const manager = harness.accesses.trackSelection.mPluginManager;
+    manager.resetSlotPlugin = () => assert.fail('resetSlotPlugin opens a blocking host prompt and must never be called');
+    harness.call('objects.list', { root: 'trackSelection' });
+    expectError(harness.call('plugins.reset', { root: 'trackSelection', objectId: 2, confirmRemoval: true }), 'UNKNOWN_OPERATION');
+    assert.deepEqual(harness.pluginWrites, []);
+});
+
+test('a stored response is returned again by request ID without repeating the operation', () => {
+    const harness = fixture();
+    const id = 'ab'.repeat(16);
+    const first = harness.transact('controls.set', { session: harness.session, key: 'track.volume', value: 0.5 }, id);
+    assert.equal(first.ok, true);
+    const writes = harness.writes.length;
+    const replay = harness.call('bridge.response', { requestId: id }).data;
+    assert.equal(replay.state, 'completed');
+    assert.equal(replay.sameInstance, true);
+    assert.deepEqual(replay.response, first);
+    assert.equal(harness.writes.length, writes);
+    // A response look-up needs no current session and is not itself stored.
+    const lookup = harness.transact('bridge.response', { requestId: id, session: 'other-1' });
+    assert.deepEqual([lookup.data.state, lookup.data.sameInstance], ['completed', false]);
+    assert.equal(harness.call('bridge.response', { requestId: lookup.id }).data.state, 'evicted');
+    const never = harness.call('bridge.response', { requestId: 'cd'.repeat(16) }).data;
+    assert.deepEqual([never.state, never.sameInstance], ['unknown', true]);
+    expectError(harness.call('bridge.response', { requestId: 'short' }), 'INVALID_ARGUMENT');
+    // A queued request is reported as pending until an idle callback executes it.
+    const queued = harness.receive('controls.get', { session: harness.session, key: 'track.volume' });
+    const probe = harness.receive('bridge.response', { session: harness.session, requestId: queued });
+    harness.tick();
+    harness.tick();
+    const answered = harness.replies.find(reply => reply.id === probe);
+    assert.ok(['pending', 'completed'].includes(answered.data.state));
+    // The same request ID is never executed twice, also after a page activation.
+    harness.usePage('mixer');
+    harness.usePage('main');
+    expectError(harness.transact('controls.set', { session: harness.session, key: 'track.volume', value: 0.9 }, id), 'DUPLICATE_ID');
+    assert.equal(harness.writes.filter(write => write.key === 'track.volume').length, 1);
+});
+
+test('request identifiers are remembered until their deadline and far deadlines are refused', () => {
+    const harness = fixture();
+    const far = harness.transact('controls.get', { session: harness.session, key: 'track.volume' }, undefined, Date.now() + 601000);
+    expectError(far, 'INVALID_REQUEST');
+    assert.equal(far.error.execution, 'not_started');
+    const id = 'ef'.repeat(16), deadline = Date.now() + 2000;
+    assert.equal(harness.transact('controls.get', { session: harness.session, key: 'track.volume' }, id, deadline).ok, true);
+    expectError(harness.transact('controls.get', { session: harness.session, key: 'track.volume' }, id, deadline), 'DUPLICATE_ID');
+    assert.equal(harness.call('bridge.response', { requestId: id }).data.state, 'completed');
 });

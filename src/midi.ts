@@ -47,7 +47,16 @@ interface Pending {
     sent: boolean;
     signal?: AbortSignal;
     abort?: () => void;
+    internal?: boolean;
+    probe?: ReturnType<typeof setTimeout>;
+    session?: string;
+    deadline: number;
 }
+
+// A response frame can be lost in transit (observed when the Cubase transport stops). After this
+// delay the client asks the bridge for the stored response of the same request ID. The operation
+// is never sent again; only its already produced response is read.
+const RESPONSE_PROBE_DELAY_MS = 1200;
 
 export class BridgeError extends Error {
     constructor(
@@ -136,6 +145,10 @@ export class MidiClient {
     }
 
     async request(op: string, args: Record<string, unknown> = {}, signal?: AbortSignal): Promise<unknown> {
+        return this.transmit(op, args, signal, false);
+    }
+
+    private async transmit(op: string, args: Record<string, unknown>, signal: AbortSignal | undefined, internal: boolean): Promise<unknown> {
         if (this.state === 'closed' || this.state === 'faulted') {
             throw new BridgeError(this.state === 'closed' ? 'MIDI_CLOSED' : 'MIDI_FAULTED',
                 'Construct a new MIDI client before sending another request.', 'not_started', this.fault);
@@ -146,7 +159,7 @@ export class MidiClient {
         }
         if (this.pending.size >= 32) throw new BridgeError('MIDI_BUSY', 'At most 32 requests may be pending.');
         const id = randomBytes(16).toString('hex');
-        const deadline = Date.now() + this.options.timeoutMs;
+        const deadline = Date.now() + (internal ? Math.min(1500, this.options.timeoutMs) : this.options.timeoutMs);
         let frames: number[][];
         try {
             frames = encode({ v: 1, id, deadline, op, args });
@@ -157,12 +170,16 @@ export class MidiClient {
         if (Date.now() >= deadline) throw new BridgeError('MIDI_TIMEOUT', 'Request expired before submission.');
         return new Promise((resolve, reject) => {
             const pending: Pending = {
-                resolve, reject, sent: false, signal,
+                resolve, reject, sent: false, signal, internal, deadline,
+                session: typeof args.session === 'string' ? args.session : undefined,
                 timer: setTimeout(() => {
-                    this.fail(new BridgeError('MIDI_TIMEOUT', 'MIDI response timed out.', 'unknown', { id }));
+                    // A lost look-up only ends that look-up; a lost operation response faults the channel.
+                    if (internal) this.settle(id, new BridgeError('MIDI_TIMEOUT', 'Response look-up timed out.', 'not_started', { id }));
+                    else this.fail(new BridgeError('MIDI_TIMEOUT', 'MIDI response timed out.', 'unknown', { id }));
                 }, Math.max(1, deadline - Date.now()))
             };
             this.pending.set(id, pending);
+            if (!internal) pending.probe = setTimeout(() => this.probe(id, pending), RESPONSE_PROBE_DELAY_MS);
             if (signal) {
                 pending.abort = () => {
                     const error = new BridgeError('MIDI_CANCELLED', 'MIDI request cancelled.',
@@ -319,10 +336,38 @@ export class MidiClient {
         }
     }
 
+    private probe(id: string, pending: Pending): void {
+        pending.probe = undefined;
+        if (this.state !== 'open' || this.pending.get(id) !== pending || !pending.sent || pending.deadline - Date.now() < 300) return;
+        const again = () => {
+            if (this.state === 'open' && this.pending.get(id) === pending) {
+                pending.probe = setTimeout(() => this.probe(id, pending), RESPONSE_PROBE_DELAY_MS);
+            }
+        };
+        this.transmit('bridge.response', { requestId: id, ...(pending.session ? { session: pending.session } : {}) }, undefined, true).then(found => {
+            if (this.state !== 'open' || this.pending.get(id) !== pending) return;
+            if (record(found) && found.state === 'completed' && record(found.response) && found.response.id === id) {
+                this.deliver(found.response);
+            } else if (record(found) && found.state === 'unknown' && found.sameInstance === true) {
+                // The same script instance never admitted this ID: its request frames were lost before execution.
+                this.settle(id, new BridgeError('REQUEST_NOT_ADMITTED', 'The bridge never received this request; it was not executed.', 'not_started', { id }));
+            } else {
+                again();
+            }
+        }, again);
+    }
+
     private receive(bytes: unknown): void {
         if (this.state !== 'open' || (!Array.isArray(bytes) && !Buffer.isBuffer(bytes))) return;
         try {
-            const response: unknown = this.decoder.accept(bytes, Date.now());
+            this.deliver(this.decoder.accept(bytes, Date.now()));
+        } catch (error) {
+            this.fail(new BridgeError('MIDI_PROTOCOL_ERROR', 'Invalid MIDI bridge response.', 'unknown', describe(error)));
+        }
+    }
+
+    private deliver(response: unknown): void {
+        try {
             if (!record(response) || typeof response.id !== 'string' || !this.pending.has(response.id)) return;
             if (response.v !== 1 || typeof response.ok !== 'boolean') throw new Error('INVALID_RESPONSE');
             if (response.ok) {
@@ -346,6 +391,7 @@ export class MidiClient {
         if (!pending) return;
         this.pending.delete(id);
         clearTimeout(pending.timer);
+        if (pending.probe) clearTimeout(pending.probe);
         if (pending.abort) pending.signal?.removeEventListener('abort', pending.abort);
         if (error) pending.reject(error);
         else pending.resolve(data);

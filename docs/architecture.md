@@ -11,11 +11,19 @@ The return path carries correlated replies. There is no adapter router, foregrou
 
 The explicit project lifecycle uses a separate fixed native initializer on the owned event thread, not a retry/fallback for MIDI controls. See `docs/background-project-lifecycle.md`.
 
+Session 31 adds explicit native operation 5 for audio export through a temporary NonUI host controller. `cubase_audio_export` no longer executes export-window commands; it passes an output path and sample options through the existing owned-operation coordinator, selects the host's main output, then reads the emitted audio metadata. Builds, three focused contracts and four different real-host format/rate/depth outputs passed; see `docs/native-file-services-31.md`.
+
+Operations 6, 7 and 8 add explicit-path audio import, native event/note discovery and guarded event/note edits. `NativeProjectModel.h` traverses MIDI-part contents, reports temporary event IDs, and uses host getters/setters on the owned event thread. Note edits require exact identity and original values. The temporary context's working/start/end time bases agree, and time writes check the inverse conversion before entering a setter. Native sidecars carry the fixed operation parameters, not arbitrary addresses or executable commands. Final builds and 193 tests passed; audio/note readback and a fresh-process persistence check have separate live evidence.
+
+Operations 9..12 cover track creation, plug-in unload, audio-bus routing and automation data. `NativePluginServices.h`, `NativeRouting.h` and `NativeAutomation.h` use the same owned event-thread dispatcher. Session 34 fixed Group/FX persistent recreation with a `VST Multitrack` factory token and the complete binding sequence, added real instrument/folder tracks and send destinations, and passed fresh-reopen semantic acceptance. Automation points have identity/count guards; output and send writes have independent MIDI feedback. See `docs/native-host-contracts-34.md`.
+
 ## Boundaries
 
-- `src/server.ts`: 30 named tools and explicit error results; no generic eval or arbitrary menu call.
+- `src/server.ts`: 53 named tools and explicit error results; no generic eval or arbitrary menu call. Composite tools perform every host write once.
+- `src/smf.ts`, `src/song.ts`, `src/wav.ts`: Standard MIDI File codec, beat-based song view and read-only observation of the MIDI and audio files that the host writes.
 - `src/lifecycle.ts`, `scripts/Project-Runtime.ps1`: serialized owned lifecycle, JSON argument file on E, process/parent/Job checks and a single post-readiness MIDI handshake.
-- `native/ProjectCreateLoader.cs`, `native/bridge/CubaseProjectCreate.cpp`, `native/bridge/OwnedHostSupport.h`: fixed-build event-thread create/open/bind-path/save-as operations; no instruction or licensing patches.
+- `scripts/Start-CubaseEmptyBackground.ps1`, `scripts/start-empty-holder.cjs`: fixed WMI-to-Node-to-PowerShell holder launch, independent of the caller Job; the original private-desktop/restricted-Job checks remain. A recorded license-startup stall can restart the owned empty host and exact helper once before native admission, never replaying project work.
+- `native/ProjectCreateLoader.cs`, `native/bridge/CubaseProjectCreate.cpp`, `native/bridge/OwnedHostSupport.h`: fixed-build event-thread lifecycle and operations 1..12; no instruction or licensing patches. Dedicated headers contain file/event, plug-in, routing and automation implementations.
 - `src/config.ts`: literal background-only policy and exact port names.
 - `src/bridge-contract.ts`: one required host version, bridge revision and active-session contract shared by server and doctor.
 - `src/midi.ts`: native MIDI ownership, request IDs, timeout/cancellation uncertainty and fault latching.
@@ -32,6 +40,8 @@ The explicit project lifecycle uses a separate fixed native initializer on the o
 - `scripts/verify-live.cjs`: real stdio MCP client, coverage-revision check, unique-ID and runtime-ID guarded test writes and feedback verification. A restore follows only an observed target value; uncertain writes or unobserved targets do not trigger another write. Each result uses a unique non-overwriting file.
 
 ## State and Outcomes
+
+Sessions 32/33 retain the failed track prototype and destroyed-track dumps at `Cubase+0x2e1bdb0`. Session 34 demonstrated why tree/mixer visibility alone was insufficient: reference paths and factory tokens have different reconstruction semantics. The corrected sequence passed the original failing reopen check and an extended instrument/folder/send/automation check in a new process, without a new crash dump. Historical receipts stay unchanged; current results are in `native-host-contracts-34.md`.
 
 Host object IDs are not durable project identifiers. Discovery and mutation must use the same session and root. Mapping-page activation changes the session; removal callbacks revoke the affected observations. Runtime evidence is separate from protocol fixture evidence and static feature presence.
 
@@ -116,3 +126,11 @@ Revision 3.13 replaces the ineffective Save pulse with the fixed prepared MIDI w
 The former research-only lifecycle boundary has been narrowed into explicit production operations: owned blank creation, existing CPR open, named save-as and explicit-discard shutdown. New/open first launch an empty isolated host; save-as requires the managed document path and active MIDI session. `PArrangement` path binding precedes the current-path native save, matching the observed dispatcher. Postconditions check the current root/document and path, then the emitted file; no source template is copied.
 
 A real MCP blank/create/save-as/open sequence passed on new files. Mapping readiness is observed through the installed controller's activation/idle records before the first MIDI request. Old unknown requests are preserved. Core editing still uses the one MIDI transport; no native fallback for failed parameter/control bindings exists. The remaining feature families are tracked separately rather than reported as available.
+
+## Session 30: pages, confirmation and song tools
+
+Controller 3.14 keeps three mapping pages: the main page (transport, selected track, quick controls, Control Room, all command bindings, DirectAccess), the mixer page (all `mixer.*` bank controls) and the minimal Save page. Feedback callbacks no longer walk the control table; observations carry epoch stamps and are invalidated by incrementing a counter. The reason is recorded in `docs/binding-root-cause-30.md`: a slow page activation is abandoned by the host and its surface values stop propagating. Activation counters are part of `bridge.status`; a page with host callbacks and no surface callback refuses writes.
+
+The server adds a settle window to control and command writes and returns what the host confirmed. The MIDI client asks the bridge for a stored response when a reply does not arrive (`bridge.response`); it never sends the operation again, and a request that the same script instance never admitted is settled as not started.
+
+Song-level tools sit on three host mechanisms: DirectAccess parameters of mixer channels and of the transport object, the key-command allowlist, and native lifecycle operation 4 (MIDI file import). MIDI content is read back from the file that Cubase writes for the project; audio is exported by the host's own export, started by two key commands, with the written file as the only completion evidence. A host window is never operated: unexpected windows are reported by a read-only inventory and the instance is replaced. See `docs/song-tools-30.md`.

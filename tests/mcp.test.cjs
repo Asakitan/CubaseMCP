@@ -45,7 +45,23 @@ test('all session operations reject an obsolete bridge before host dispatch', as
         ['cubase_project_save', { session: 'old', projectPath: 'E:\\VC\\CubaseMCP\\artifacts\\unopened.cpr', confirmCurrentProjectPath: true }],
         ['cubase_project_save_as', { session: 'old', projectPath: 'E:\\VC\\CubaseMCP\\artifacts\\new-save-as.cpr', confirmSaveAs: true }],
         ['cubase_selected_track', { session: 'old' }],
-        ['cubase_track_navigate', { session: 'old', direction: 'next', expectedUniqueId: 'track' }]
+        ['cubase_track_navigate', { session: 'old', direction: 'next', expectedUniqueId: 'track' }],
+        ['cubase_command_get', { session: 'old', key: 'edit.undo' }],
+        ['cubase_pages_list', { session: 'old' }],
+        ['cubase_page_activate', { session: 'old', page: 'mixer' }],
+        ['cubase_channels_list', { session: 'old' }],
+        ['cubase_channel_set', { session: 'old', objectId: 1, expectedUniqueId: 'uid', field: 'mute', value: true }],
+        ['cubase_transport_state', { session: 'old' }],
+        ['cubase_transport_set', { session: 'old', field: 'cycle', value: true }],
+        ['cubase_transport_action', { session: 'old', action: 'stop' }],
+        ['cubase_track_edit', { session: 'old', objectId: 1, expectedUniqueId: 'uid', action: 'duplicate', confirmEdit: true }],
+        ['cubase_midi_import', { session: 'old', song: { tracks: [{ notes: [{ pitch: 60, start: 0, duration: 1 }] }] }, confirmImport: true }],
+        ['cubase_midi_read', { session: 'old' }],
+        ['cubase_audio_import', { session: 'old', audioPath: 'E:\\Audio\\source.wav', confirmImport: true }],
+        ['cubase_events_list', { session: 'old' }],
+        ['cubase_midi_note_edit', { session: 'old', root: '0x1234', eventId: '0x5678', path: [2, 0, 1], expected: { name: 'Note', pitch: 60, velocity: 96, channel: 0, velocityNormalized: 0.75, startSeconds: 0, durationSeconds: 2 }, field: 'pitch', value: 62, confirmEdit: true }],
+        ['cubase_event_edit', { session: 'old', root: '0x1234', path: [0, 0], expected: { type: 'MAudioEvent', name: 'Audio', startSeconds: 0, durationSeconds: 1 }, field: 'position', seconds: 2, confirmEdit: true }],
+        ['cubase_audio_export', { session: 'old', confirmExport: true }]
     ];
     try {
         await Promise.all([runtime.server.connect(serverTransport), client.connect(clientTransport)]);
@@ -123,11 +139,11 @@ test('MCP forwards selected-channel runtime guards to the current bridge', async
         await Promise.all([runtime.server.connect(serverTransport), client.connect(clientTransport)]);
         const control = { session: 'current', key: 'track.volume', value: 0.5,
             expectedTrackUniqueId: 'track', expectedTrackRuntimeId: 7 };
-        assert.equal((await client.callTool({ name: 'cubase_control_set', arguments: control })).isError, undefined);
+        assert.equal((await client.callTool({ name: 'cubase_control_set', arguments: { ...control, settleMs: 0 } })).isError, undefined);
         assert.deepEqual(requests.at(-1), { operation: 'controls.set', args: control });
         const plugin = { ...control, key: 'track.instrument.parameter.0', expectedPluginIdentity: {
             name: 'Synth', vendor: 'Vendor', version: '1', formatVersion: '3' } };
-        assert.equal((await client.callTool({ name: 'cubase_control_set', arguments: plugin })).isError, undefined);
+        assert.equal((await client.callTool({ name: 'cubase_control_set', arguments: { ...plugin, settleMs: 0 } })).isError, undefined);
         assert.deepEqual(requests.at(-1), { operation: 'controls.set', args: plugin });
         const editLock = { session: 'current', root: 'trackSelection', objectId: 2, tag: 101,
             locked: true, expectedLocked: false };
@@ -176,7 +192,7 @@ test('real stdio server exposes tools and rejects missing MIDI without fallback'
     try {
         await client.connect(transport);
         const listed = await client.listTools();
-        assert.equal(listed.tools.length, 30);
+        assert.equal(listed.tools.length, 53);
         assert.ok(listed.tools.some(tool => tool.name === 'cubase_parameter_set'));
         assert.ok(listed.tools.some(tool => tool.name === 'cubase_parameter_get'));
         assert.ok(listed.tools.some(tool => tool.name === 'cubase_parameter_edit_lock_set'));

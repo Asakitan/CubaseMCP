@@ -6,12 +6,17 @@ var MAX_REQUESTS = 32;
 var MAX_IDS = 4096;
 var MAX_FRAMES = 1024;
 var FRAME_RESERVE = 512;
-var FRAMES_PER_IDLE = 4;
+var FRAMES_PER_IDLE = 12;
 var MAX_OBJECTS = 2048;
 var MAX_TAGS = 8192;
 var MAX_PLUGINS = 8192;
 var MAX_INTEGER = 9007199254740991;
-var BRIDGE_REVISION = '2026-11-10-coverage-3.13';
+var MAX_DEADLINE_AHEAD = 600000;
+var MAX_RECENT_RESPONSES = 24;
+// A page that delivered this much host feedback without one surface callback did not finish activating.
+var STALL_HOST_CALLBACKS = 64;
+var BRIDGE_REVISION = '2026-11-10-coverage-3.14';
+var PAGE_NAMES = { main: 'CubaseAI MCP', mixer: 'CubaseAI MCP Mixer', save: 'CubaseAI MCP Save' };
 
 function fail(code, message, details, execution) {
     var error = new Error(message);
@@ -115,8 +120,16 @@ function createController(api, logger) {
     invoke(detection, 'expectInputNameEquals', ['CubaseAI MCP To Cubase']);
     invoke(detection, 'expectOutputNameEquals', ['CubaseAI MCP From Cubase']);
     method(output, 'sendMidi');
-    var page = invoke(driver.mMapping, 'makePage', ['CubaseAI MCP']);
+    var page = invoke(driver.mMapping, 'makePage', [PAGE_NAMES.main]);
     var host = page.mHostAccess;
+    // The eight-channel mixer bank lives on its own mapping page. Cubase abandons a page
+    // activation whose feedback burst runs too long (docs/binding-root-cause-30.md), which
+    // leaves every surface value of that page without host propagation. Keeping the bank
+    // away from the main page keeps transport, selected-track and command bindings small.
+    var mixerPage = null, mixerHost = null, mixerPageError = null;
+    var buildPage = page, buildPageKey = 'main';
+    var activePageKey = null;
+    var pendingPage = null;
     var decoder = protocol.createDecoder();
     var pending = [];
     var outbound = [];
@@ -126,6 +139,20 @@ function createController(api, logger) {
     var activeMapping = null;
     var session = null;
     var generation = 0;
+    // Observations are invalidated by comparing small epoch counters instead of walking the
+    // control table: host feedback callbacks must stay O(1).
+    var sessionEpoch = 0;
+    var trackScope = { epoch: 0 };
+    var groupScopes = Object.create(null);
+    var identityStamps = Object.create(null);
+    var activation = null;
+    // A command surface is pressed in one idle callback and released in the next one, so the
+    // host reports one binding event per execution (a same-call pulse is coalesced away).
+    var idleTick = 0;
+    var heldCommands = [];
+    // Cubase can drop a response frame (observed when the transport stops). The last responses are
+    // kept so a client can ask for one again by request ID; the operation itself is never repeated.
+    var recentResponses = [];
     var instance = Date.now().toString(16) + '-' + Math.random().toString(16).slice(2);
     var roots = Object.create(null);
     var rootNames = ['trackSelection', 'mixConsole', 'transport', 'focusedQuickControls'];
@@ -348,6 +375,154 @@ function createController(api, logger) {
             visible: visible, index: index, zone: zone };
     }
 
+    // Channel fields that describe a track at a glance. The tags are the DirectAccess parameter tags
+    // observed on Cubase 16.0.5 mixer channels (see docs/song-tools-30.md). Audio-type channels and
+    // MIDI channels use different tags for input and output; a field a channel does not expose is null.
+    var CHANNEL_FIELDS = {
+        name: { tags: [1024], kind: 'text' },
+        volume: { tags: [1025], kind: 'level' },
+        pan: { tags: [1026], kind: 'level', child: { typeName: 'Panner', tag: 4201 } },
+        mute: { tags: [1027], kind: 'switch' },
+        solo: { tags: [1028], kind: 'switch' },
+        selected: { tags: [4000], kind: 'switch' },
+        monitor: { tags: [4001], kind: 'switch' },
+        recordEnable: { tags: [4002], kind: 'switch' },
+        automationRead: { tags: [4014], kind: 'switch' },
+        automationWrite: { tags: [4013], kind: 'switch' },
+        midiChannel: { tags: [4006], kind: 'read' },
+        input: { tags: [4101, 4007], kind: 'read' },
+        output: { tags: [4102, 4008], kind: 'read' },
+        freeze: { tags: [4113], kind: 'read' }
+    };
+    var CHANNEL_FIELD_NAMES = Object.keys(CHANNEL_FIELDS);
+
+    function admitTag(root, objectId, tag, position) {
+        var known = root.objects[objectId];
+        if (known.tags[tag] === undefined) {
+            if (root.tagCount >= MAX_TAGS) fail('OBSERVATION_LIMIT', 'Parameter tracking limit reached for this root.');
+            root.tagCount++;
+        }
+        known.tags[tag] = position;
+    }
+
+    function tagPositions(root, objectId) {
+        var count = hostCount(invoke(root.access, 'getNumberOfParameters', [activeMapping, objectId]));
+        var positions = Object.create(null);
+        for (var position = 0; position < Math.min(count, 512); position++) {
+            var tag = invoke(root.access, 'getParameterTagByIndex', [activeMapping, objectId, position]);
+            if (integer(tag, -2147483648, 4294967295) && positions[tag] === undefined) positions[tag] = position;
+        }
+        return positions;
+    }
+
+    // Resolves one channel field to the object and tag that carry it and admits that parameter.
+    function channelField(root, channelId, name, positions) {
+        var field = CHANNEL_FIELDS[name];
+        for (var index = 0; index < field.tags.length; index++) {
+            if (positions[field.tags[index]] !== undefined) {
+                admitTag(root, channelId, field.tags[index], positions[field.tags[index]]);
+                return { objectId: channelId, tag: field.tags[index] };
+            }
+        }
+        if (!field.child) return null;
+        var total = hostCount(invoke(root.access, 'getNumberOfChildObjects', [activeMapping, channelId]));
+        for (var child = 0; child < Math.min(total, 32); child++) {
+            var childId = hostCount(invoke(root.access, 'getChildObjectID', [activeMapping, channelId, child]));
+            if (hostText(invoke(root.access, 'getObjectTypeName', [activeMapping, childId])) !== field.child.typeName) continue;
+            observeObject(root, childId);
+            var childPositions = tagPositions(root, childId);
+            if (childPositions[field.child.tag] === undefined) return null;
+            admitTag(root, childId, field.child.tag, childPositions[field.child.tag]);
+            return { objectId: childId, tag: field.child.tag };
+        }
+        return null;
+    }
+
+    function channelItem(root, channelId, index) {
+        var info = observeObject(root, channelId), positions = tagPositions(root, channelId);
+        var item = { index: index, objectId: channelId, typeName: info.typeName, title: info.title,
+            uniqueIdString: info.uniqueIdString, fields: {} };
+        CHANNEL_FIELD_NAMES.forEach(function (name) {
+            var target = channelField(root, channelId, name, positions);
+            if (!target) { item.fields[name] = null; return; }
+            var value = parameterValue(root, target.objectId, target.tag);
+            item.fields[name] = { objectId: target.objectId, tag: target.tag, value: value.value, display: value.display,
+                writable: CHANNEL_FIELDS[name].kind !== 'read' };
+        });
+        return item;
+    }
+
+    function channelsList(args) {
+        var bounds = pagination(args);
+        var root = refresh(roots.mixConsole);
+        if (bounds.offset === 0) {
+            root.stage = 'update';
+            invoke(root.access, 'update', [activeMapping]);
+            clearRoot(root);
+            refresh(root);
+        }
+        observeObject(root, root.base);
+        var total = hostCount(invoke(root.access, 'getNumberOfChildObjects', [activeMapping, root.base]));
+        var items = [], duplicates = 0, last = Math.min(total, bounds.offset + bounds.limit);
+        for (var index = bounds.offset; index < last; index++) {
+            var child = hostCount(invoke(root.access, 'getChildObjectID', [activeMapping, root.base, index]));
+            // The host can list the last channel twice; a repeated neighbour is not a second channel.
+            if (index > 0 && child === hostCount(invoke(root.access, 'getChildObjectID', [activeMapping, root.base, index - 1]))) {
+                duplicates++;
+                continue;
+            }
+            items.push(channelItem(root, child, index));
+        }
+        return { session: session, root: 'mixConsole', offset: bounds.offset, limit: bounds.limit, total: total, items: items,
+            duplicatesSkipped: duplicates, nextOffset: last < total ? last : null, baseObjectId: root.base };
+    }
+
+    function channelsSet(request, args) {
+        if (typeof args.field !== 'string' || !Object.prototype.hasOwnProperty.call(CHANNEL_FIELDS, args.field)) {
+            fail('INVALID_ARGUMENT', 'field must be one of: ' + CHANNEL_FIELD_NAMES.join(', ') + '.');
+        }
+        var field = CHANNEL_FIELDS[args.field];
+        if (field.kind === 'read') fail('READ_ONLY', 'This channel field is reported only; it is not written by this operation.');
+        if (typeof args.expectedUniqueId !== 'string' || !args.expectedUniqueId) {
+            fail('CONFIRMATION_REQUIRED', 'expectedUniqueId must be the uniqueIdString returned by channels.list for this channel.');
+        }
+        var root = refresh(roots.mixConsole);
+        var known = admittedObject(root, args.objectId);
+        if (known.identity.uniqueIdString !== args.expectedUniqueId) {
+            fail('CHANNEL_CHANGED', 'The channel identity differs from expectedUniqueId; list channels again.',
+                { currentUniqueId: known.identity.uniqueIdString });
+        }
+        var target = channelField(root, args.objectId, args.field, tagPositions(root, args.objectId));
+        if (!target) fail('FIELD_UNAVAILABLE', 'This channel does not expose the requested field.');
+        var setter, value = args.value;
+        if (field.kind === 'text') {
+            if (typeof value !== 'string' || !value.length || value.length > 128 || /[\u0000-\u001f]/.test(value)) {
+                fail('INVALID_VALUE', 'A name must be 1 to 128 printable characters.');
+            }
+            setter = method(root.access, 'setParameterDisplayValue');
+        } else if (field.kind === 'switch') {
+            if (typeof value !== 'boolean') fail('INVALID_VALUE', 'This field takes a boolean value.');
+            value = value ? 1 : 0;
+            setter = method(root.access, 'setParameterProcessValue');
+        } else if (typeof value === 'string') {
+            if (!value.length || value.length > 64) fail('INVALID_VALUE', 'A display value must be 1 to 64 characters.');
+            setter = method(root.access, 'setParameterDisplayValue');
+        } else {
+            value = normalized(value);
+            setter = method(root.access, 'setParameterProcessValue');
+        }
+        var before = parameterValue(root, target.objectId, target.tag);
+        if (hostBool(invoke(root.access, 'getParameterEditLockState', [activeMapping, target.objectId, target.tag]))) {
+            fail('PARAMETER_LOCKED', 'The parameter is edit-locked.');
+        }
+        return submitted(function () {
+            setter.call(root.access, activeMapping, target.objectId, target.tag, value);
+            var after = root.objects[target.objectId] ? parameterValue(root, target.objectId, target.tag) : null;
+            return receipt(request, { objectId: args.objectId, field: args.field, parameter: target,
+                requestedValue: args.value, before: before, after: after });
+        });
+    }
+
     function parameterValue(root, objectId, tag) {
         var value = hostNumber(invoke(root.access, 'getParameterProcessValue', [activeMapping, objectId, tag]));
         return { value: value,
@@ -555,19 +730,66 @@ function createController(api, logger) {
         });
     }
 
+    // ---- observation bookkeeping -----------------------------------------------------
+    // A stored value is current only while its session, channel scope and plug-in group
+    // epochs still match. Clearing is therefore one counter increment, never a table walk.
+    function isCurrent(record) {
+        return record.stampSession === sessionEpoch &&
+            (!record.scope || record.stampScope === record.scope.epoch) &&
+            (!record.groupScope || record.stampGroup === record.groupScope.epoch);
+    }
+
+    function renew(record) {
+        if (!isCurrent(record)) { record.observed = null; record.display = null; }
+        if (record.revisionSession !== sessionEpoch) { record.revision = 0; record.revisionSession = sessionEpoch; }
+        record.stampSession = sessionEpoch;
+        record.stampScope = record.scope ? record.scope.epoch : 0;
+        record.stampGroup = record.groupScope ? record.groupScope.epoch : 0;
+    }
+
+    function observedValue(record) { return isCurrent(record) ? record.observed : null; }
+    function observedDisplay(record) { return isCurrent(record) ? record.display : null; }
+
+    function groupScope(group) {
+        if (!groupScopes[group]) groupScopes[group] = { epoch: 0 };
+        return groupScopes[group];
+    }
+
+    function setPluginIdentity(group, identity, scope) {
+        controlGroups[group].pluginIdentity = identity;
+        identityStamps[group] = identity && scope ? { scope: scope, epoch: scope.epoch } : null;
+    }
+
+    function pluginIdentity(group) {
+        var holder = controlGroups[group];
+        if (!holder || !holder.pluginIdentity) return null;
+        var stamp = identityStamps[group];
+        if (stamp && stamp.scope.epoch !== stamp.epoch) { holder.pluginIdentity = null; identityStamps[group] = null; return null; }
+        return holder.pluginIdentity;
+    }
+
+    function assignBank(record, bankIndex) {
+        record.bankIndex = bankIndex;
+        record.slot = bankSlots[bankIndex];
+        record.scope = bankSlots[bankIndex];
+    }
+
+    // There is no operation that unloads a plug-in. resetSlotPlugin asks for confirmation in a host
+    // prompt that blocks this script until it is answered, and trySetSlotPlugin with an empty type
+    // UID is refused by the host (both observed live). A loaded plug-in can be replaced with
+    // plugins.set or switched off through its insert-viewer control.
+
     function admitControlFeedback(record) {
-        if (record.bankIndex !== undefined) {
+        if (record.pageKey !== activePageKey) return false;
+        if (record.slot) {
             try { bankChannelIdentity(record.bankIndex, false); return true; }
             catch (error) { markBankError(record.bankIndex, error); return false; }
         }
-        if (record.key.indexOf('track.') !== 0) return true;
+        if (record.scope !== trackScope) return true;
         try {
             selectedTrack();
             return true;
         } catch (error) {
-            clearTrackObservation();
-            observedTrackId = null;
-            observedTrackRuntimeId = null;
             return false;
         }
     }
@@ -576,34 +798,41 @@ function createController(api, logger) {
         record.surface = invoke(driver.mSurface, 'makeCustomValueVariable', [record.key]);
         method(record.surface, 'setProcessValue');
         record.surface.mOnProcessValueChange = function (device, value) {
+            if (activation) activation.surface++;
             if (device === activeDevice && activeMapping && !writingSurface && finite(value) && value >= 0 && value <= 1 &&
                 admitControlFeedback(record)) {
+                renew(record);
                 record.observed = { value: value, revision: ++record.revision };
-                if (record.bankIndex !== undefined) record.observed.channelUniqueId = bankSlots[record.bankIndex].uniqueId;
+                if (record.slot) record.observed.channelUniqueId = record.slot.uniqueId;
             }
         };
     }
 
     function makeControl(key, path, hostValue, momentary, readOnly) {
-        var record = { key: key, path: path, momentary: !!momentary, readOnly: !!readOnly,
+        var record = { key: key, path: path, pageKey: buildPageKey, momentary: !!momentary, readOnly: !!readOnly,
             observed: null, display: null, revision: 0, error: null, feedbackErrors: Object.create(null) };
+        if (key.indexOf('track.') === 0) record.scope = trackScope;
         controls[key] = record;
         try {
             if (!hostValue) fail('API_UNAVAILABLE', 'Host value is missing: ' + path);
             surface(record);
-            record.binding = invoke(page, 'makeValueBinding', [record.surface, hostValue]);
+            record.binding = invoke(buildPage, 'makeValueBinding', [record.surface, hostValue]);
             if (!record.binding) fail('API_UNAVAILABLE', 'Value binding was not created for ' + key);
             hostValue.mOnProcessValueChange = function (device, mapping, value) {
+                if (activation) activation.host++;
                 if (device === activeDevice && mapping === activeMapping && finite(value) && value >= 0 && value <= 1 &&
                     admitControlFeedback(record)) {
+                    renew(record);
                     record.observed = { value: value, revision: ++record.revision };
-                    if (record.bankIndex !== undefined) record.observed.channelUniqueId = bankSlots[record.bankIndex].uniqueId;
+                    if (record.slot) record.observed.channelUniqueId = record.slot.uniqueId;
                 }
             };
             try {
                 hostValue.mOnDisplayValueChange = function (device, mapping, value, units) {
+                    if (activation) activation.display++;
                     if (device === activeDevice && mapping === activeMapping &&
                         typeof value === 'string' && typeof units === 'string' && admitControlFeedback(record)) {
+                        renew(record);
                         record.display = { value: value, units: units };
                     }
                 };
@@ -614,13 +843,14 @@ function createController(api, logger) {
     }
 
     function makeActionControl(key, path, action) {
-        var record = { key: key, path: path, momentary: true, readOnly: false, action: true,
+        var record = { key: key, path: path, pageKey: buildPageKey, momentary: true, readOnly: false, action: true,
             observed: null, display: null, revision: 0, error: null, feedbackErrors: Object.create(null) };
+        if (key.indexOf('track.') === 0) record.scope = trackScope;
         controls[key] = record;
         try {
             if (!action) fail('API_UNAVAILABLE', 'Host action is missing: ' + path);
             surface(record);
-            var binding = invoke(page, 'makeActionBinding', [record.surface, action]);
+            var binding = invoke(buildPage, 'makeActionBinding', [record.surface, action]);
             record.binding = invoke(binding, 'filterByValue', [1]);
             if (!record.binding) fail('API_UNAVAILABLE', 'Filtered action binding was not created: ' + key);
         } catch (error) { record.error = errorData(error); }
@@ -638,7 +868,7 @@ function createController(api, logger) {
                 failure = errorData(error);
             }
             makeControl(prefix + index, path + '.getByIndex(' + index + ')', value, false);
-            if (bankIndex !== undefined) controls[prefix + index].bankIndex = bankIndex;
+            if (bankIndex !== undefined) assignBank(controls[prefix + index], bankIndex);
             if (failure) controls[prefix + index].error = failure;
         }
     }
@@ -655,7 +885,7 @@ function createController(api, logger) {
                 makeControl(key, fullPath, null, false, readOnly);
                 controls[key].error = errorData(error);
             }
-            if (bankIndex !== undefined) controls[key].bankIndex = bankIndex;
+            if (bankIndex !== undefined) assignBank(controls[key], bankIndex);
         });
     }
 
@@ -747,26 +977,34 @@ function createController(api, logger) {
         } catch (exception) { group.error = errorData(exception); }
     }
 
+    function pageInactive(pageKey) {
+        return { code: 'PAGE_INACTIVE', message: 'Activate the ' + pageKey + ' mapping page with pages.activate first.',
+            details: { requiredPage: pageKey, activePage: activePageKey } };
+    }
+
     function controlInfo(record) {
-        var result = { key: record.key, path: record.path, momentary: record.momentary,
-            readOnly: record.readOnly, available: !record.error && !!activeMapping,
-            observed: record.observed, display: record.display };
+        var onPage = record.pageKey === activePageKey;
+        var result = { key: record.key, path: record.path, page: record.pageKey, momentary: record.momentary,
+            readOnly: record.readOnly, action: !!record.action, available: !record.error && !!activeMapping && onPage,
+            observed: onPage ? observedValue(record) : null, display: onPage ? observedDisplay(record) : null };
         if (record.bankIndex !== undefined) {
-            var slot = bankSlots[record.bankIndex];
+            var slot = record.slot;
             result.channel = { index: record.bankIndex, uniqueId: slot.uniqueId, runtimeId: slot.runtimeId };
             if (!slot.uniqueId) {
                 result.available = false;
                 var group = controlGroups['mixer.channel.' + record.bankIndex];
-                if (!record.error && group && group.error) result.error = group.error;
+                if (!record.error && onPage && group && group.error) result.error = group.error;
             }
         }
         if (record.error) result.error = record.error;
+        else if (!onPage) result.error = pageInactive(record.pageKey);
         if (Object.keys(record.feedbackErrors).length) result.feedbackErrors = record.feedbackErrors;
         return result;
     }
 
     function controlList(args) {
-        if (activeMapping) {
+        var onMain = activePageKey === 'main', onMixer = activePageKey === 'mixer';
+        if (activeMapping && onMain) {
             try {
                 var current = selectedTrack();
                 controlGroups['track.identity'] = { available: true, uniqueId: current.uniqueId, runtimeId: current.runtimeId };
@@ -786,20 +1024,29 @@ function createController(api, logger) {
             fail('INVALID_ARGUMENT', 'Offsets must be nonnegative and limits must be in [1, 16].');
         }
         var keys = Object.keys(controls), groupKeys = Object.keys(controlGroups), groups = {};
-        keys.slice(offset, offset + limit).forEach(function (key) {
-            if (controls[key].bankIndex !== undefined) {
-                try { bankChannelIdentity(controls[key].bankIndex, true); } catch (error) { markBankError(controls[key].bankIndex, error); }
-            }
-        });
-        groupKeys.slice(groupOffset, groupOffset + groupLimit).forEach(function (key) {
-            var match = /^mixer\.channel\.(\d+)(?:\.|$)/.exec(key);
-            if (match) { try { bankChannelIdentity(Number(match[1]), true); } catch (error) { markBankError(Number(match[1]), error); } }
-        });
+        if (onMixer) {
+            keys.slice(offset, offset + limit).forEach(function (key) {
+                if (controls[key].bankIndex !== undefined) {
+                    try { bankChannelIdentity(controls[key].bankIndex, true); } catch (error) { markBankError(controls[key].bankIndex, error); }
+                }
+            });
+            groupKeys.slice(groupOffset, groupOffset + groupLimit).forEach(function (key) {
+                var match = /^mixer\.channel\.(\d+)(?:\.|$)/.exec(key);
+                if (match) { try { bankChannelIdentity(Number(match[1]), true); } catch (error) { markBankError(Number(match[1]), error); } }
+            });
+        }
         var items = keys.slice(offset, offset + limit).map(function (key) { return boundedMetadata(controlInfo(controls[key]), 0); });
         groupKeys.slice(groupOffset, groupOffset + groupLimit).forEach(function (key) {
+            if (Object.prototype.hasOwnProperty.call(controlGroups[key], 'pluginIdentity')) pluginIdentity(key);
             groups[key] = boundedMetadata(controlGroups[key], 0);
+            var mixerGroup = /^mixer\./.test(key);
+            groups[key].page = mixerGroup ? 'mixer' : 'main';
+            if (mixerGroup ? !onMixer : !onMain) {
+                groups[key].available = false;
+                if (!groups[key].error) groups[key].error = pageInactive(groups[key].page);
+            }
             var match = /^mixer\.channel\.(\d+)\./.exec(key);
-            if (match) {
+            if (match && bankSlots[Number(match[1])]) {
                 var index = Number(match[1]), slot = bankSlots[index], channelGroup = controlGroups['mixer.channel.' + index];
                 groups[key].channel = { index: index, uniqueId: slot.uniqueId, runtimeId: slot.runtimeId };
                 if (!slot.uniqueId) {
@@ -810,41 +1057,73 @@ function createController(api, logger) {
         });
         var next = Math.min(keys.length, offset + items.length);
         var nextGroup = Math.min(groupKeys.length, groupOffset + Object.keys(groups).length);
-        return { session: session, controls: items, groups: groups, offset: offset, limit: limit, total: keys.length,
+        return { session: session, page: activePageKey, controls: items, groups: groups, offset: offset, limit: limit, total: keys.length,
             nextOffset: next < keys.length ? next : null, groupOffset: groupOffset, groupLimit: groupLimit,
             groupTotal: groupKeys.length, nextGroupOffset: nextGroup < groupKeys.length ? nextGroup : null };
     }
 
     function controlsGet(args) {
         if (typeof args.key !== 'string' || !controls[args.key]) fail('INVALID_CONTROL', 'Unknown control key.');
-        if (args.key.indexOf('track.') === 0) selectedTrack();
-        if (controls[args.key].bankIndex !== undefined) bankChannelIdentity(controls[args.key].bankIndex, true);
         var record = controls[args.key];
+        var onPage = record.pageKey === activePageKey;
+        if (onPage && args.key.indexOf('track.') === 0) selectedTrack();
+        if (onPage && record.bankIndex !== undefined) bankChannelIdentity(record.bankIndex, true);
         var info = boundedMetadata(controlInfo(record), 0);
         if (record.pluginBankGroup) {
-            var identity = controlGroups[record.pluginBankGroup].pluginIdentity;
+            var identity = onPage ? pluginIdentity(record.pluginBankGroup) : null;
             info.pluginIdentity = identity ? { name: identity.name, vendor: identity.vendor,
                 version: identity.version, formatVersion: identity.formatVersion } : null;
         }
-        return { session: session, control: info };
+        return { session: session, page: activePageKey, control: info };
     }
 
-    function commandList() {
-        return commandDefinitions.map(function (definition) {
-            var record = commands[definition.key];
-            var result = { key: definition.key, category: definition.category, name: definition.name,
-                context: definition.context, available: !record.error && !!activeMapping, canPerform: false };
-            if (record.error) result.error = record.error;
-            else if (activeMapping) {
-                try {
-                    result.canPerform = hostBool(invoke(record.binding, 'canPerform', [activeMapping]));
-                } catch (error) {
-                    result.available = false;
-                    result.error = errorData(error);
-                }
+    function commandInfo(definition, detailed) {
+        var record = commands[definition.key];
+        var result = { key: definition.key, category: definition.category, name: definition.name, group: definition.group,
+            live: definition.live, available: !record.error && !!activeMapping && activePageKey === 'main', canPerform: false };
+        if (definition.tool) result.tool = definition.tool;
+        if (detailed) {
+            result.context = definition.context;
+            result.bindingEvents = record.bindingEvents || 0;
+            result.lastBindingEventAt = record.lastEventAt || null;
+            result.lastRequestId = record.lastRequestId || null;
+        }
+        if (record.error) result.error = record.error;
+        else if (result.available) {
+            try {
+                result.canPerform = hostBool(invoke(record.binding, 'canPerform', [activeMapping]));
+            } catch (error) {
+                result.available = false;
+                result.error = errorData(error);
             }
-            return result;
-        });
+        }
+        return result;
+    }
+
+    function commandList(args) {
+        var bounds = pagination(args);
+        if (args.group !== undefined && (typeof args.group !== 'string' || !args.group.length || args.group.length > 32)) {
+            fail('INVALID_ARGUMENT', 'group must be a short command group name.');
+        }
+        var matching = commandDefinitions.filter(function (definition) { return args.group === undefined || definition.group === args.group; });
+        var items = matching.slice(bounds.offset, bounds.offset + bounds.limit).map(function (definition) { return commandInfo(definition, false); });
+        var next = Math.min(matching.length, bounds.offset + items.length);
+        var groups = {};
+        commandDefinitions.forEach(function (definition) { groups[definition.group] = (groups[definition.group] || 0) + 1; });
+        return { session: session, commands: items, offset: bounds.offset, limit: bounds.limit, total: matching.length,
+            nextOffset: next < matching.length ? next : null, groups: groups };
+    }
+
+    function commandGet(args) {
+        if (typeof args.key !== 'string' || !commands[args.key]) fail('COMMAND_NOT_ALLOWED', 'Command is not in the fixed background-only allowlist.');
+        return { session: session, command: commandInfo(commands[args.key].definition, true) };
+    }
+
+    function surfaceReady() {
+        if (activation && activation.host >= STALL_HOST_CALLBACKS && activation.surface === 0) {
+            fail('SURFACE_INACTIVE', 'This mapping page delivered host feedback but no surface feedback; its bindings are not propagating. Reactivate the page.',
+                { page: activePageKey, hostCallbacks: activation.host, surfaceCallbacks: activation.surface });
+        }
     }
 
     function setSurface(record, value, pulse) {
@@ -863,6 +1142,11 @@ function createController(api, logger) {
         var record = controls[args.key];
         if (record.error) fail(record.error.code, record.error.message, record.error.details);
         if (record.readOnly) fail('READ_ONLY', 'This control only exposes host feedback.');
+        if (record.pageKey !== activePageKey) {
+            var inactive = pageInactive(record.pageKey);
+            fail(inactive.code, inactive.message, inactive.details);
+        }
+        surfaceReady();
         var currentTrack = args.key.indexOf('track.') === 0 ? selectedTrack() : null;
         if ((args.key.indexOf('track.insert.') === 0 || (record.pluginBankGroup && currentTrack)) && args.expectedTrackUniqueId === undefined) {
             fail('CONFIRMATION_REQUIRED', 'Track plug-in controls require expectedTrackUniqueId.');
@@ -890,7 +1174,7 @@ function createController(api, logger) {
             if (typeof args.expectedChannelUniqueId !== 'string' || !args.expectedChannelUniqueId) {
                 fail('CONFIRMATION_REQUIRED', 'Bank-channel writes require the previously observed expectedChannelUniqueId.');
             }
-            var slot = bankSlots[record.bankIndex];
+            var slot = record.slot;
             if (!slot || !slot.admitted || slot.uniqueId !== args.expectedChannelUniqueId) {
                 fail('CHANNEL_UNOBSERVED', 'Read the current bank channel before writing.');
             }
@@ -907,7 +1191,7 @@ function createController(api, logger) {
             var expectedPlugin = args.expectedPluginIdentity;
             if (!expectedPlugin || typeof expectedPlugin !== 'object' || Array.isArray(expectedPlugin))
                 fail('CONFIRMATION_REQUIRED', 'expectedPluginIdentity is required.');
-            var identity = controlGroups[record.pluginBankGroup].pluginIdentity;
+            var identity = pluginIdentity(record.pluginBankGroup);
             if (!identity || typeof identity.name !== 'string' || !identity.name ||
                 (currentTrack && (identity.trackUniqueId !== currentTrack.uniqueId || identity.trackRuntimeId !== currentTrack.runtimeId)) ||
                 (record.bankIndex !== undefined && (identity.channelUniqueId !== currentChannel.uniqueId || identity.channelRuntimeId !== currentChannel.runtimeId)))
@@ -921,11 +1205,11 @@ function createController(api, logger) {
         var value = normalized(args.value);
         if (record.action && value !== 1) fail('INVALID_VALUE', 'Action controls require value 1.');
         method(record.surface, 'setProcessValue');
-        var before = record.observed;
+        var before = observedValue(record);
         return submitted(function () {
             if (record.action && record.pluginBankGroup) {
                 clearGroupObservation(record.pluginBankGroup);
-                controlGroups[record.pluginBankGroup].pluginIdentity = null;
+                setPluginIdentity(record.pluginBankGroup, null, null);
             }
             if (record.action && args.key.indexOf('track.') === 0 && !record.pluginBankGroup) clearTrackObservation();
             if (record.action && args.key.indexOf('mixer.bank.') === 0) clearBankObservations();
@@ -936,7 +1220,8 @@ function createController(api, logger) {
                 observedTrackRuntimeId = null;
             }
             setSurface(record, value, record.momentary);
-            return receipt(request, { key: args.key, requestedValue: value, before: before, after: record.observed });
+            return receipt(request, { key: args.key, page: record.pageKey, requestedValue: value, momentary: record.momentary,
+                action: !!record.action, before: before, after: observedValue(record) });
         });
     }
 
@@ -945,15 +1230,45 @@ function createController(api, logger) {
         if (args.key === 'project.save') fail('SAVE_INPUT_REQUIRED', 'Use the fixed prepared MIDI input path for Save.');
         if (args.confirmCurrentSelection !== true) fail('CONFIRMATION_REQUIRED', 'confirmCurrentSelection must be true.');
         var record = commands[args.key];
+        if (record.definition.tool && args.tool !== record.definition.tool) {
+            fail('COMPOSITE_REQUIRED', 'This command is only executed by ' + record.definition.tool + ', which prepares its context.',
+                { tool: record.definition.tool });
+        }
         if (record.error) fail(record.error.code, record.error.message, record.error.details);
         method(record.surface, 'setProcessValue');
+        surfaceReady();
         if (!hostBool(invoke(record.binding, 'canPerform', [activeMapping]))) {
             fail('COMMAND_UNAVAILABLE', 'The command cannot perform in the current Cubase context.');
         }
+        var eventsBefore = record.bindingEvents;
         return submitted(function () {
-            setSurface(record, 1, true);
-            return receipt(request, { key: args.key, context: record.definition.context });
+            record.lastRequestId = request.id;
+            record.held = true;
+            record.pressedTick = idleTick;
+            heldCommands.push(record);
+            setSurface(record, 1, false);
+            return receipt(request, { key: args.key, category: record.definition.category, name: record.definition.name,
+                context: record.definition.context, bindingEventsBefore: eventsBefore, bindingEvents: record.bindingEvents });
         });
+    }
+
+    function releaseHeldCommands(force) {
+        if (!heldCommands.length) return;
+        var remaining = [];
+        heldCommands.forEach(function (record) {
+            if (!force && record.pressedTick === idleTick) { remaining.push(record); return; }
+            record.held = false;
+            record.releasedTick = idleTick;
+            try { setSurface(record, 0, false); } catch (error) { record.releaseError = errorData(error); }
+        });
+        heldCommands = remaining;
+    }
+
+    function commandInputBusy(request) {
+        if (!request || request.op !== 'commands.execute' || !request.args || typeof request.args.key !== 'string') return false;
+        var record = commands[request.args.key];
+        // Wait until the previous press of this command was released in an earlier idle callback.
+        return !!record && !!record.surface && (record.held === true || record.releasedTick === idleTick) && request.deadline > Date.now();
     }
 
     function prepareSave(request, args) {
@@ -963,9 +1278,10 @@ function createController(api, logger) {
         if (record.error) fail(record.error.code, record.error.message, record.error.details);
         if (armedSave && !armedSave.observed && Date.now() < armedSave.deadline) fail('COMMAND_BUSY', 'A Save input is already pending.');
         if (invoke(record.surface, 'getProcessValue', [activeDevice]) !== 0) fail('COMMAND_INPUT_HELD', 'The fixed Save input has not been released.');
-        armedSave = { token: request.id, originSession: session, deadline: Math.min(request.deadline, args.inputDeadline), observed: false, stage: 'switching' };
+        armedSave = { token: request.id, originSession: session, originPage: activePageKey === 'mixer' ? 'mixer' : 'main',
+            deadline: Math.min(request.deadline, args.inputDeadline), observed: false, stage: 'switching' };
         invoke(savePage.mAction.mActivate, 'trigger', [activeMapping]);
-        return { deferredSaveResponse: true };
+        return { deferredResponse: true };
     }
 
     function saveResult(args) {
@@ -979,8 +1295,8 @@ function createController(api, logger) {
         if (!armedSave || !armedSave.observed || args.token !== armedSave.token || args.session !== armedSave.session ||
             invoke(commands['project.save'].surface, 'getProcessValue', [activeDevice]) !== 0) fail('SAVE_RETURN_NOT_ADMITTED', 'The Save input is not ready to return.');
         armedSave.stage = 'returning'; armedSave.finishId = request.id;
-        invoke(page.mAction.mActivate, 'trigger', [activeMapping]);
-        return { deferredSaveResponse: true };
+        invoke(pageFor(armedSave.originPage).mAction.mActivate, 'trigger', [activeMapping]);
+        return { deferredResponse: true };
     }
 
     function setupSaveInput() {
@@ -992,7 +1308,7 @@ function createController(api, logger) {
             var midiBinding = invoke(record.surface.mMidiBinding, 'setInputPort', [input]);
             invoke(midiBinding, 'setIsConsuming', [true]);
             invoke(midiBinding, 'bindToNote', [0, 1]);
-            savePage = invoke(driver.mMapping, 'makePage', ['CubaseAI MCP Save']);
+            savePage = invoke(driver.mMapping, 'makePage', [PAGE_NAMES.save]);
             record.binding = invoke(savePage, 'makeCommandBinding', [record.surface, 'File', 'Save']);
             method(record.binding, 'canPerform');
             record.binding.mOnValueChange = function (device, mapping, value) {
@@ -1000,7 +1316,9 @@ function createController(api, logger) {
                     armedSave.mapping === mapping && armedSave.session === session) armedSave.observed = true;
             };
             savePage.mOnActivate = function (device, mapping) {
-                activeDevice = device; activeMapping = mapping; savePageActive = true;
+                activeDevice = device; activeMapping = mapping; savePageActive = true; activePageKey = 'save';
+                sessionEpoch++;
+                activation = { page: 'save', startedAt: Date.now(), firstIdleAt: null, host: 0, display: 0, surface: 0, identity: 0 };
                 session = instance + '-save-' + (++generation); pending = []; outbound = []; decoder.reset();
                 if (!armedSave || armedSave.stage !== 'switching') { returnUnarmedSavePage = true; return; }
                 armedSave.session = session; armedSave.mapping = mapping; armedSave.stage = 'input';
@@ -1013,7 +1331,8 @@ function createController(api, logger) {
             };
             savePage.mOnDeactivate = function (device, mapping) {
                 if (device !== activeDevice || mapping !== activeMapping) return;
-                activeMapping = null; session = null; pending = []; outbound = []; decoder.reset();
+                activeMapping = null; session = null; activePageKey = null; pending = []; outbound = []; decoder.reset();
+                sessionEpoch++;
                 if (!armedSave || armedSave.stage !== 'returning') armedSave = null;
             };
             savePage.mOnIdle = serviceIdle;
@@ -1021,44 +1340,24 @@ function createController(api, logger) {
     }
 
     function clearGroupObservation(group) {
-        Object.keys(controls).forEach(function (key) {
-            if (key.indexOf(group + '.') === 0) {
-                controls[key].observed = null;
-                controls[key].display = null;
-            }
-        });
+        groupScope(group).epoch++;
     }
 
     function clearTrackObservation() {
-        Object.keys(controls).forEach(function (key) {
-            if (key.indexOf('track.') === 0) {
-                controls[key].observed = null;
-                controls[key].display = null;
-            }
-        });
-        Object.keys(controlGroups).forEach(function (key) {
-            if (key.indexOf('track.') === 0 && Object.prototype.hasOwnProperty.call(controlGroups[key], 'pluginIdentity')) {
-                controlGroups[key].pluginIdentity = null;
-            }
-        });
+        // Invalidates every track-scoped value and plug-in identity recorded for the previous selection.
+        trackScope.epoch++;
     }
 
     function clearBankSlot(index) {
         var slot = bankSlots[index];
         if (!slot) return;
-        slot.uniqueId = null; slot.runtimeId = null; slot.admitted = false;
-        Object.keys(controls).forEach(function (key) {
-            if (controls[key].bankIndex === index) { controls[key].observed = null; controls[key].display = null; }
-        });
-        Object.keys(controlGroups).forEach(function (key) {
-            if (key.indexOf('mixer.channel.' + index + '.') === 0 &&
-                Object.prototype.hasOwnProperty.call(controlGroups[key], 'pluginIdentity')) controlGroups[key].pluginIdentity = null;
-        });
-        if (controlGroups['mixer.channel.' + index]) {
-            controlGroups['mixer.channel.' + index].available = false;
-            controlGroups['mixer.channel.' + index].uniqueId = null;
-            controlGroups['mixer.channel.' + index].runtimeId = null;
-            delete controlGroups['mixer.channel.' + index].error;
+        slot.uniqueId = null; slot.runtimeId = null; slot.admitted = false; slot.epoch++;
+        var group = controlGroups['mixer.channel.' + index];
+        if (group) {
+            group.available = false;
+            group.uniqueId = null;
+            group.runtimeId = null;
+            delete group.error;
         }
     }
 
@@ -1067,11 +1366,17 @@ function createController(api, logger) {
         if (controlGroups['mixer.channel.' + index]) controlGroups['mixer.channel.' + index].error = errorData(error);
     }
 
-    function clearBankObservations() { bankSlots.forEach(function (slot, index) { clearBankSlot(index); }); }
+    function clearBankObservations() { for (var index = 0; index < bankSlots.length; index++) clearBankSlot(index); }
+
+    function pageFor(key) { return key === 'mixer' && mixerPage ? mixerPage : page; }
 
     function bankChannelIdentity(index, admit) {
         var slot = bankSlots[index];
         if (!slot || !slot.channel) fail('API_UNAVAILABLE', 'Bank channel is unavailable.');
+        if (activePageKey !== 'mixer') {
+            var inactive = pageInactive('mixer');
+            fail(inactive.code, inactive.message, inactive.details);
+        }
         var id = hostText(invoke(slot.channel, 'getUniqueIDString', [activeMapping]));
         if (!id) { clearBankSlot(index); fail('NO_CHANNEL', 'Cubase did not report an identity for this bank slot.'); }
         var runtimeId = hostCount(invoke(slot.channel, 'getRuntimeID', [activeMapping]));
@@ -1087,6 +1392,10 @@ function createController(api, logger) {
 
     function selectedTrack() {
         try {
+            if (activePageKey !== 'main') {
+                var inactive = pageInactive('main');
+                fail(inactive.code, inactive.message, inactive.details);
+            }
             var selection = host && host.mTrackSelection;
             var selected = selection && selection.mMixerChannel;
             var uniqueId = hostText(invoke(selected, 'getUniqueIDString', [activeMapping]));
@@ -1214,6 +1523,97 @@ function createController(api, logger) {
         });
     }
 
+    // Transport parameters of the DirectAccess transport object. On Cubase 16.0.5 their titles are
+    // these fixed identifiers (not localized); a tag whose title differs is treated as absent.
+    var TRANSPORT_TAGS = { start: 4015, stop: 4016, record: 4019, cycle: 4022, punchIn: 4020, punchOut: 4021,
+        time: 4023, time2: 4101, timeFormat: 4025, timeFormat2: 4102, signature: 4027,
+        cycleLeftTime: 4030, cycleRightTime: 4031, cycleDuration: 4051, metronomeOn: 4099, precountOn: 4100,
+        returnToZero: 1, gotoEnd: 2, gotoNextMarker: 3, gotoPrevMarker: 4, stepBar: 5, stepBackBar: 6 };
+    var TRANSPORT_ACTIONS = ['start', 'stop', 'returnToZero', 'gotoEnd', 'gotoNextMarker', 'gotoPrevMarker', 'stepBar', 'stepBackBar'];
+    var TRANSPORT_SWITCHES = { cycle: 'cycle', metronome: 'metronomeOn', precount: 'precountOn', punchIn: 'punchIn', punchOut: 'punchOut' };
+
+    function transportRoot() {
+        var root = refresh(roots.transport);
+        observeObject(root, root.base);
+        var known = root.objects[root.base];
+        if (!known.transportFields) {
+            var positions = tagPositions(root, root.base), fields = Object.create(null);
+            Object.keys(TRANSPORT_TAGS).forEach(function (title) {
+                var tag = TRANSPORT_TAGS[title];
+                if (positions[tag] === undefined) return;
+                if (hostText(invoke(root.access, 'getParameterTitle', [activeMapping, root.base, tag, 256])) !== title) return;
+                admitTag(root, root.base, tag, positions[tag]);
+                fields[title] = tag;
+            });
+            known.transportFields = fields;
+        }
+        return root;
+    }
+
+    function transportField(root, title) {
+        var tag = root.objects[root.base].transportFields[title];
+        return tag === undefined ? null : parameterValue(root, root.base, tag);
+    }
+
+    function transportSnapshot(root) {
+        function on(title) { var value = transportField(root, title); return value ? value.value >= 0.5 : null; }
+        function text(title) { var value = transportField(root, title); return value ? value.display : null; }
+        return { playing: on('start'), stopped: on('stop'), recording: on('record'), cycle: on('cycle'),
+            punchIn: on('punchIn'), punchOut: on('punchOut'), metronome: on('metronomeOn'), precount: on('precountOn'),
+            position: { primary: text('time'), secondary: text('time2'), primaryFormat: text('timeFormat'), secondaryFormat: text('timeFormat2') },
+            cycleLeft: text('cycleLeftTime'), cycleRight: text('cycleRightTime'), cycleDuration: text('cycleDuration'),
+            signature: text('signature') };
+    }
+
+    function transportState() {
+        var root = transportRoot();
+        var result = transportSnapshot(root);
+        result.session = session;
+        result.tempo = transportObservation.tempo;
+        result.baseObjectId = root.base;
+        return result;
+    }
+
+    function transportAction(request, args) {
+        if (typeof args.action !== 'string' || TRANSPORT_ACTIONS.indexOf(args.action) === -1) {
+            fail('INVALID_ARGUMENT', 'action must be one of: ' + TRANSPORT_ACTIONS.join(', ') + '.');
+        }
+        var root = transportRoot();
+        var tag = root.objects[root.base].transportFields[args.action];
+        if (tag === undefined) fail('API_UNAVAILABLE', 'The host does not expose this transport action.');
+        var setter = method(root.access, 'setParameterProcessValue');
+        var before = transportSnapshot(root);
+        return submitted(function () {
+            setter.call(root.access, activeMapping, root.base, tag, 1);
+            return receipt(request, { action: args.action, before: before });
+        });
+    }
+
+    function transportSet(request, args) {
+        var root = transportRoot(), fields = root.objects[root.base].transportFields, tag, value, setter;
+        if (args.field === 'signature') {
+            if (typeof args.value !== 'string' || !/^([1-9]|[1-5][0-9]|6[0-4])\/(1|2|4|8|16|32|64)$/.test(args.value)) {
+                fail('INVALID_VALUE', 'A time signature is written as numerator/denominator, for example 3/4.');
+            }
+            tag = fields.signature;
+            value = args.value;
+            setter = method(root.access, 'setParameterDisplayValue');
+        } else if (typeof args.field === 'string' && Object.prototype.hasOwnProperty.call(TRANSPORT_SWITCHES, args.field)) {
+            if (typeof args.value !== 'boolean') fail('INVALID_VALUE', 'This transport field takes a boolean value.');
+            tag = fields[TRANSPORT_SWITCHES[args.field]];
+            value = args.value ? 1 : 0;
+            setter = method(root.access, 'setParameterProcessValue');
+        } else {
+            fail('INVALID_ARGUMENT', 'field must be signature, ' + Object.keys(TRANSPORT_SWITCHES).join(', ') + '.');
+        }
+        if (tag === undefined) fail('API_UNAVAILABLE', 'The host does not expose this transport field.');
+        var before = transportSnapshot(root);
+        return submitted(function () {
+            setter.call(root.access, activeMapping, root.base, tag, value);
+            return receipt(request, { field: args.field, requestedValue: args.value, before: before, after: transportSnapshot(root) });
+        });
+    }
+
     function timeFeatures() {
         var display = timeDisplay();
         var result = { tempo: !!display && typeof display.setTempoBPM === 'function', time: {} };
@@ -1227,16 +1627,62 @@ function createController(api, logger) {
         return result;
     }
 
+    function pageList() {
+        var counts = { main: 0, mixer: 0 };
+        Object.keys(controls).forEach(function (key) { counts[controls[key].pageKey] = (counts[controls[key].pageKey] || 0) + 1; });
+        var pages = [
+            { key: 'main', name: PAGE_NAMES.main, available: true, active: activePageKey === 'main', controlTotal: counts.main,
+                operations: 'all session operations and the command allowlist' },
+            { key: 'mixer', name: PAGE_NAMES.mixer, available: !!mixerPage, active: activePageKey === 'mixer', controlTotal: counts.mixer,
+                operations: 'mixer.* controls, controls.list/get/set, host.info, project.save and page operations' }
+        ];
+        if (mixerPageError) pages[1].error = mixerPageError;
+        return pages;
+    }
+
+    function activationInfo() {
+        if (!activation) return null;
+        return { page: activation.page, hostCallbacks: activation.host, displayCallbacks: activation.display,
+            surfaceCallbacks: activation.surface, identityCallbacks: activation.identity,
+            burstMs: activation.firstIdleAt === null ? null : activation.firstIdleAt - activation.startedAt,
+            surfaceInput: activation.surface > 0 ? 'ready' : activation.host >= STALL_HOST_CALLBACKS ? 'stalled' : 'unobserved' };
+    }
+
+    function pagesActivate(request, args) {
+        if (args.page !== 'main' && args.page !== 'mixer') fail('INVALID_ARGUMENT', 'page must be main or mixer.');
+        if (args.page === 'mixer' && !mixerPage) fail('API_UNAVAILABLE', 'The mixer mapping page was not created.', mixerPageError || undefined);
+        if (pendingPage) fail('PAGE_SWITCH_BUSY', 'Another page activation is pending.');
+        if (args.page === activePageKey) {
+            return { session: session, page: activePageKey, originSession: session, originPage: activePageKey, changed: false };
+        }
+        var target = pageFor(args.page);
+        var trigger = method(target.mAction && target.mAction.mActivate, 'trigger');
+        pendingPage = { id: request.id, target: args.page, origin: activePageKey, originSession: session, stage: 'switching', deadline: request.deadline };
+        try { trigger.call(target.mAction.mActivate, activeMapping); }
+        catch (error) { pendingPage = null; error.execution = 'submitted'; throw error; }
+        return { deferredResponse: true };
+    }
+
+    // While a modal host window is open, or no project is active, every command reports
+    // canPerform false. One transport command is sampled so a caller can see that state.
+    function commandGate() {
+        var record = commands['transport.cycle'];
+        if (!record || record.error || !activeMapping || activePageKey !== 'main') return null;
+        try { return { key: 'transport.cycle', canPerform: hostBool(invoke(record.binding, 'canPerform', [activeMapping])) }; }
+        catch (error) { return { key: 'transport.cycle', canPerform: null, error: errorData(error) }; }
+    }
+
     function status() {
         var appVersion = version();
         return { session: session, appVersion: appVersion, bridgeRevision: BRIDGE_REVISION, active: !!activeMapping,
+            page: activePageKey, activation: activationInfo(), commandGate: commandGate(),
             policy: { backgroundOnly: true, fallback: false },
             features: { directAccess: !!host && typeof host.makeDirectAccess === 'function',
                 valueBindings: typeof page.makeValueBinding === 'function',
                 commandBindings: typeof page.makeCommandBinding === 'function' },
             discovery: { controlsOperation: 'controls.list', rootsOperation: 'objects.list', commandsOperation: 'commands.list',
-                controlTotal: Object.keys(controls).length, groupTotal: Object.keys(controlGroups).length,
-                maximumPageSize: 16 },
+                pagesOperation: 'pages.list', controlTotal: Object.keys(controls).length, groupTotal: Object.keys(controlGroups).length,
+                commandTotal: commandDefinitions.length, maximumPageSize: 16 },
             limits: { requests: MAX_REQUESTS, trackedIds: MAX_IDS, outputFrames: MAX_FRAMES,
                 framesPerIdle: FRAMES_PER_IDLE, objectsPerRoot: MAX_OBJECTS, tagsPerRoot: MAX_TAGS, pluginsPerRoot: MAX_PLUGINS } };
     }
@@ -1246,39 +1692,74 @@ function createController(api, logger) {
             typeof request.args !== 'object' || Array.isArray(request.args)) fail('INVALID_REQUEST', 'Expected {v:1,id,op,args}.');
         if (!finite(request.deadline)) fail('INVALID_REQUEST', 'A finite epoch deadline is required.', undefined, 'not_started');
         if (request.deadline <= Date.now()) fail('REQUEST_EXPIRED', 'Request expired before execution.', undefined, 'not_started');
+        if (request.deadline > Date.now() + MAX_DEADLINE_AHEAD) fail('INVALID_REQUEST', 'The deadline is too far in the future.', undefined, 'not_started');
         if (request.op === 'bridge.status') return status();
+        if (request.op === 'bridge.response') return responseState(request.args);
         version();
         if (!activeMapping || !session || request.args.session !== session) fail('STALE_SESSION', 'Use the active session from bridge.status.');
         method(host, 'makeDirectAccess');
         var args = request.args;
         if (savePageActive && request.op !== 'commands.result' && request.op !== 'commands.finish') fail('SAVE_PAGE_BUSY', 'Only the pending Save transaction is accepted on this page.');
-        if (request.op === 'objects.list') return objectsList(args);
         if (request.op === 'host.info') return hostInfo();
+        if (request.op === 'pages.list') return { session: session, active: activePageKey, pages: pageList(), activation: activationInfo() };
+        if (request.op === 'pages.activate') return pagesActivate(request, args);
+        if (request.op === 'controls.list') return controlList(args);
+        if (request.op === 'controls.get') return controlsGet(args);
+        if (request.op === 'controls.set') return controlsSet(request, args);
+        if (request.op === 'commands.prepare') return prepareSave(request, args);
+        if (request.op === 'commands.result') return saveResult(args);
+        if (request.op === 'commands.finish') return finishSave(request, args);
+        if (activePageKey !== 'main') {
+            var inactive = pageInactive('main');
+            fail(inactive.code, inactive.message, inactive.details);
+        }
+        if (request.op === 'objects.list') return objectsList(args);
         if (request.op === 'objects.get') return objectsGet(args);
         if (request.op === 'mixer.channel') return mixerChannelInfo(args);
+        if (request.op === 'channels.list') return channelsList(args);
+        if (request.op === 'channels.set') return channelsSet(request, args);
         if (request.op === 'parameters.list') return parametersList(args);
         if (request.op === 'parameters.get') return parametersGet(args);
         if (request.op === 'parameters.set') return parametersSet(request, args);
         if (request.op === 'parameters.lock') return parametersSetEditLock(request, args);
         if (request.op === 'plugins.list') return pluginsList(args);
         if (request.op === 'plugins.set') return pluginsSet(request, args);
-        if (request.op === 'controls.list') return controlList(args);
-        if (request.op === 'controls.get') return controlsGet(args);
-        if (request.op === 'controls.set') return controlsSet(request, args);
-        if (request.op === 'commands.list') return { session: session, commands: commandList() };
+        if (request.op === 'commands.list') return commandList(args);
+        if (request.op === 'commands.get') return commandGet(args);
         if (request.op === 'commands.execute') return commandsExecute(request, args);
-        if (request.op === 'commands.prepare') return prepareSave(request, args);
-        if (request.op === 'commands.result') return saveResult(args);
-        if (request.op === 'commands.finish') return finishSave(request, args);
         if (request.op === 'track.current') return selectedTrack();
         if (request.op === 'track.navigate') return navigateTrack(request, args);
         if (request.op === 'transport.get') return transportGet();
         if (request.op === 'transport.tempo') return transportTempo(request, args);
         if (request.op === 'transport.time') return transportTime(request, args);
+        if (request.op === 'transport.state') return transportState();
+        if (request.op === 'transport.action') return transportAction(request, args);
+        if (request.op === 'transport.set') return transportSet(request, args);
         fail('UNKNOWN_OPERATION', 'Unsupported bridge operation: ' + request.op);
     }
 
+    function responseState(args) {
+        if (typeof args.requestId !== 'string' || !/^[a-f0-9]{32}$/.test(args.requestId)) {
+            fail('INVALID_ARGUMENT', 'requestId must be a 32-character request identifier.');
+        }
+        var sameInstance = typeof args.session === 'string' && args.session.indexOf(instance + '-') === 0;
+        for (var index = recentResponses.length - 1; index >= 0; index--) {
+            if (recentResponses[index].id === args.requestId) return { state: 'completed', sameInstance: sameInstance, response: recentResponses[index] };
+        }
+        var waiting = pending.some(function (request) { return request.id === args.requestId; }) ||
+            (pendingPage && pendingPage.id === args.requestId) ||
+            (armedSave && (armedSave.token === args.requestId || armedSave.finishId === args.requestId));
+        if (waiting) return { state: 'pending', sameInstance: sameInstance };
+        return { state: seen[args.requestId] !== undefined ? 'evicted' : 'unknown', sameInstance: sameInstance };
+    }
+
     function enqueueResponse(response) {
+        if (!response.transient) {
+            if (recentResponses.length >= MAX_RECENT_RESPONSES) recentResponses.shift();
+            recentResponses.push(response);
+        } else {
+            delete response.transient;
+        }
         var frames;
         try {
             frames = protocol.encode(response);
@@ -1299,6 +1780,14 @@ function createController(api, logger) {
         enqueueResponse({ v: 1, id: id, ok: false, error: { code: code, message: message } });
     }
 
+    function forgetExpiredIds(now) {
+        // A request ID is only worth remembering while its own deadline could still admit it.
+        // Expired work is refused by the deadline check, so dropping its ID cannot replay it.
+        for (var id in seen) {
+            if (seen[id] <= now) { delete seen[id]; seenCount--; }
+        }
+    }
+
     input.mOnSysex = function (device, bytes) {
         if (!loggedInput) {
             loggedInput = true;
@@ -1314,16 +1803,20 @@ function createController(api, logger) {
         }
         if (!request) return;
         if (!loggedDecoded) { loggedDecoded = true; trace('first request decoded'); }
-        if (seen[request.id]) return rejection(request.id, 'DUPLICATE_ID', 'This request ID was already admitted; it will not be executed again.');
-        if (seenCount >= MAX_IDS) return rejection(request.id, 'REQUEST_LIMIT', 'Request ID tracking is full; reactivate the mapping page.');
-        seen[request.id] = true;
+        if (seen[request.id] !== undefined) return rejection(request.id, 'DUPLICATE_ID', 'This request ID was already admitted; it will not be executed again.');
+        var now = Date.now();
+        if (seenCount >= MAX_IDS) forgetExpiredIds(now);
+        if (seenCount >= MAX_IDS) return rejection(request.id, 'REQUEST_LIMIT', 'Request ID tracking is full; wait for pending deadlines to pass.');
+        // Unbounded or malformed deadlines are remembered for the maximum admitted horizon.
+        seen[request.id] = finite(request.deadline) && request.deadline <= now + MAX_DEADLINE_AHEAD ? request.deadline : now + MAX_DEADLINE_AHEAD;
         seenCount++;
         if (pending.length >= MAX_REQUESTS) return rejection(request.id, 'QUEUE_FULL', 'The request queue is full; this request was not executed.');
         pending.push(request);
     };
 
-    page.mOnActivate = function (device, mapping) {
+    function activatePage(pageKey, device, mapping) {
         var returningSave = armedSave && armedSave.stage === 'returning' ? armedSave : null;
+        var arriving = pendingPage && pendingPage.stage === 'switching' && pendingPage.target === pageKey ? pendingPage : null;
         savePageActive = false;
         returnUnarmedSavePage = false;
         trace('mapping activated');
@@ -1333,27 +1826,27 @@ function createController(api, logger) {
         loggedOutput = false;
         activeDevice = device;
         activeMapping = mapping;
+        activePageKey = pageKey;
         session = instance + '-' + (++generation);
+        sessionEpoch++;
+        activation = { page: pageKey, startedAt: Date.now(), firstIdleAt: null, host: 0, display: 0, surface: 0, identity: 0 };
+        releaseHeldCommands(true);
         decoder.reset();
         pending = [];
         outbound = [];
-        seen = Object.create(null);
-        seenCount = 0;
         observedTrackId = null;
         observedTrackRuntimeId = null;
         clearTrackObservation();
         clearBankObservations();
         clearTransportObservation();
-        if (stagedTempo && stagedTempo.device === device && stagedTempo.mapping === mapping) transportObservation.tempo = { bpm: stagedTempo.bpm };
+        if (pageKey === 'main' && stagedTempo && stagedTempo.device === device && stagedTempo.mapping === mapping) transportObservation.tempo = { bpm: stagedTempo.bpm };
         if (!returningSave) armedSave = null;
-        Object.keys(controls).forEach(function (key) {
-            controls[key].observed = null; controls[key].display = null; controls[key].revision = 0;
-        });
+        pendingPage = null;
         rootNames.forEach(function (key) {
             var root = roots[key];
             clearRoot(root);
             root.active = false;
-            if (root.error) return;
+            if (root.error || pageKey !== 'main') return;
             try {
                 version();
                 root.stage = 'activate';
@@ -1367,13 +1860,17 @@ function createController(api, logger) {
         });
         if (returningSave) {
             if (returningSave.denialError) enqueueResponse({ v: 1, id: returningSave.finishId, ok: false, error: returningSave.denialError });
-            else enqueueResponse({ v: 1, id: returningSave.finishId, ok: true, data: { session: session, key: 'project.save', token: returningSave.token,
+            else enqueueResponse({ v: 1, id: returningSave.finishId, ok: true, data: { session: session, page: pageKey, key: 'project.save', token: returningSave.token,
                 requestId: returningSave.token, execution: 'submitted', bindingObserved: true, returnedToMain: true } });
             armedSave = null;
         }
-    };
+        if (arriving) {
+            enqueueResponse({ v: 1, id: arriving.id, ok: true, data: { session: session, page: pageKey, originSession: arriving.originSession,
+                originPage: arriving.origin, changed: true, requestId: arriving.id, execution: 'submitted' } });
+        }
+    }
 
-    page.mOnDeactivate = function (device, mapping) {
+    function deactivatePage(pageKey, device, mapping) {
         if (device !== activeDevice || mapping !== activeMapping) return;
         trace('mapping deactivated');
         rootNames.forEach(function (key) {
@@ -1387,6 +1884,8 @@ function createController(api, logger) {
         });
         session = null;
         activeMapping = null;
+        activePageKey = null;
+        sessionEpoch++;
         pending = [];
         outbound = [];
         decoder.reset();
@@ -1397,8 +1896,11 @@ function createController(api, logger) {
         clearTransportObservation();
         stagedTempo = null;
         if (!armedSave || armedSave.stage !== 'switching') armedSave = null;
-        Object.keys(controls).forEach(function (key) { controls[key].observed = null; controls[key].display = null; });
-    };
+        if (pendingPage && pendingPage.stage !== 'switching') pendingPage = null;
+    }
+
+    page.mOnActivate = function (device, mapping) { activatePage('main', device, mapping); };
+    page.mOnDeactivate = function (device, mapping) { deactivatePage('main', device, mapping); };
 
     function serviceIdle(device, mapping) {
         if (!loggedIdle) {
@@ -1408,6 +1910,9 @@ function createController(api, logger) {
         if (device !== activeDevice || mapping !== activeMapping || inIdle) return;
         inIdle = true;
         try {
+            idleTick++;
+            if (activation && activation.firstIdleAt === null) activation.firstIdleAt = Date.now();
+            releaseHeldCommands(false);
             if (savePageActive && returnUnarmedSavePage) {
                 returnUnarmedSavePage = false;
                 invoke(page.mAction.mActivate, 'trigger', [activeMapping]);
@@ -1415,15 +1920,22 @@ function createController(api, logger) {
             }
             if (savePageActive && armedSave && armedSave.stage === 'denied') {
                 armedSave.stage = 'returning';
-                invoke(page.mAction.mActivate, 'trigger', [activeMapping]);
+                invoke(pageFor(armedSave.originPage).mAction.mActivate, 'trigger', [activeMapping]);
                 return;
             }
-            if (pending.length && outbound.length <= MAX_FRAMES - FRAME_RESERVE) {
+            if (pendingPage && pendingPage.stage === 'switching' && Date.now() >= pendingPage.deadline) {
+                enqueueResponse({ v: 1, id: pendingPage.id, ok: false, error: { code: 'PAGE_SWITCH_NOT_OBSERVED',
+                    message: 'The requested mapping page did not activate before the deadline.', execution: 'submitted' } });
+                pendingPage = null;
+            }
+            if (pending.length && outbound.length <= MAX_FRAMES - FRAME_RESERVE && !commandInputBusy(pending[0])) {
                 var request = pending.shift();
                 var response;
                 try { response = { v: 1, id: request.id, ok: true, data: dispatch(request) }; }
                 catch (error) { response = { v: 1, id: request.id, ok: false, error: errorData(error) }; }
-                if (!response.ok || !response.data || !response.data.deferredSaveResponse) enqueueResponse(response);
+                // Status and response look-ups are cheap to repeat and are not kept for replay.
+                if (request.op === 'bridge.status' || request.op === 'bridge.response') response.transient = true;
+                if (!response.ok || !response.data || !response.data.deferredResponse) enqueueResponse(response);
             }
             for (var index = 0; index < FRAMES_PER_IDLE && outbound.length; index++) {
                 var frame = outbound.shift();
@@ -1438,6 +1950,13 @@ function createController(api, logger) {
         }
     }
     page.mOnIdle = serviceIdle;
+    try {
+        mixerPage = invoke(driver.mMapping, 'makePage', [PAGE_NAMES.mixer]);
+        mixerHost = mixerPage.mHostAccess;
+        mixerPage.mOnActivate = function (device, mapping) { activatePage('mixer', device, mapping); };
+        mixerPage.mOnDeactivate = function (device, mapping) { deactivatePage('mixer', device, mapping); };
+        mixerPage.mOnIdle = serviceIdle;
+    } catch (error) { mixerPage = null; mixerHost = null; mixerPageError = errorData(error); }
 
     setupSaveInput();
     rootNames.forEach(function (key, index) { makeRoot(key, rootPaths[index]); });
@@ -1498,16 +2017,18 @@ function createController(api, logger) {
             [['on', 'mOn'], ['bypass', 'mBypass'], ['automationRead', 'mAutomationRead'], ['automationWrite', 'mAutomationWrite']]);
         if (!slot) return;
         controlGroups[group].pluginIdentity = null;
+        groupScope(group);
         try {
             slot.mOnChangePluginIdentity = function (device, mapping, name, vendor, version, format) {
+                if (activation) activation.identity++;
                 if (device !== activeDevice || mapping !== activeMapping ||
                     typeof name !== 'string' || typeof vendor !== 'string' || typeof version !== 'string' || typeof format !== 'string' ||
                     name.length > 4096 || vendor.length > 4096 || version.length > 4096 || format.length > 4096) return;
                 try {
                     var current = selectedTrack();
                     clearGroupObservation(group);
-                    controlGroups[group].pluginIdentity = { name: name, vendor: vendor, version: version,
-                        formatVersion: format, trackUniqueId: current.uniqueId };
+                    setPluginIdentity(group, { name: name, vendor: vendor, version: version,
+                        formatVersion: format, trackUniqueId: current.uniqueId }, trackScope);
                 } catch (error) { clearTrackObservation(); }
             };
         } catch (error) { controlGroups[group].identityError = errorData(error); }
@@ -1530,25 +2051,27 @@ function createController(api, logger) {
     });
     function makePluginBank(group, path, slot, bankIndex) {
         controlGroups[group].pluginIdentity = null;
+        groupScope(group);
         if (slot) {
             try {
                 slot.mOnChangePluginIdentity = function (device, mapping, name, vendor, version, format) {
+                    if (activation) activation.identity++;
                     if (!activeDevice || !activeMapping || device !== activeDevice || mapping !== activeMapping) return;
                     if ([name, vendor, version, format].some(function (v) { return typeof v !== 'string' || v.length > 4096; })) {
                         clearGroupObservation(group);
-                        controlGroups[group].pluginIdentity = null;
+                        setPluginIdentity(group, null, null);
                         return;
                     }
                     try {
                         var current = bankIndex === undefined ? selectedTrack() : bankChannelIdentity(bankIndex, false);
                         clearGroupObservation(group);
-                        controlGroups[group].pluginIdentity = { name: name, vendor: vendor, version: version, formatVersion: format };
-                        var identity = controlGroups[group].pluginIdentity;
+                        var identity = { name: name, vendor: vendor, version: version, formatVersion: format };
                         if (bankIndex === undefined) { identity.trackUniqueId = current.uniqueId; identity.trackRuntimeId = current.runtimeId; }
                         else { identity.channelUniqueId = current.uniqueId; identity.channelRuntimeId = current.runtimeId; }
+                        setPluginIdentity(group, identity, bankIndex === undefined ? trackScope : bankSlots[bankIndex]);
                     } catch (error) {
                         clearGroupObservation(group);
-                        controlGroups[group].pluginIdentity = null;
+                        setPluginIdentity(group, null, null);
                         if (bankIndex === undefined) clearTrackObservation(); else markBankError(bankIndex, error);
                     }
                 };
@@ -1561,7 +2084,7 @@ function createController(api, logger) {
             var key = group + '.parameter.' + i;
             makeControl(key, path + '.mParameterBankZone.makeParameterValue(' + i + ')', value, false);
             controls[key].pluginBankGroup = group;
-            if (bankIndex !== undefined) controls[key].bankIndex = bankIndex;
+            if (bankIndex !== undefined) assignBank(controls[key], bankIndex);
             if (failure) controls[key].error = failure;
         }
         [['previous', 'mPrevBank'], ['next', 'mNextBank'], ['reset', 'mResetBank']].forEach(function (entry) {
@@ -1570,7 +2093,7 @@ function createController(api, logger) {
             var key = group + '.bank.' + entry[0];
             makeActionControl(key, path + '.mParameterBankZone.mAction.' + entry[1], action);
             controls[key].pluginBankGroup = group;
-            if (bankIndex !== undefined) controls[key].bankIndex = bankIndex;
+            if (bankIndex !== undefined) assignBank(controls[key], bankIndex);
         });
     }
     function makeInsertViewer(name, filter, index) {
@@ -1585,6 +2108,7 @@ function createController(api, logger) {
             else if (filter === 'slot') viewer = invoke(viewer, 'accessSlotAtIndex', [index]);
             if (!viewer) fail('API_UNAVAILABLE', 'Insert viewer filter returned no object: ' + name);
             controlGroups[group] = { available: true, filter: filter, index: index, pluginIdentity: null };
+            groupScope(group);
         } catch (error) {
             controlGroups[group] = { available: false, filter: filter, index: index, error: errorData(error) };
             return;
@@ -1596,17 +2120,18 @@ function createController(api, logger) {
         });
         try {
             viewer.mOnChangePluginIdentity = function (device, mapping, pluginName, vendor, version, format) {
+                if (activation) activation.identity++;
                 if (!activeDevice || !activeMapping || device !== activeDevice || mapping !== activeMapping) return;
                 if ([pluginName, vendor, version, format].some(function (v) { return typeof v !== 'string' || v.length > 4096; })) {
                     clearGroupObservation(group);
-                    controlGroups[group].pluginIdentity = null;
+                    setPluginIdentity(group, null, null);
                     return;
                 }
                 try {
                     var current = selectedTrack();
                     clearGroupObservation(group);
-                    controlGroups[group].pluginIdentity = { name: pluginName, vendor: vendor, version: version,
-                        formatVersion: format, trackUniqueId: current.uniqueId, trackRuntimeId: current.runtimeId };
+                    setPluginIdentity(group, { name: pluginName, vendor: vendor, version: version,
+                        formatVersion: format, trackUniqueId: current.uniqueId, trackRuntimeId: current.runtimeId }, trackScope);
                 } catch (error) { clearTrackObservation(); }
             };
         } catch (error) { controlGroups[group].identityError = errorData(error); }
@@ -1704,6 +2229,7 @@ function createController(api, logger) {
             else if (filter === 'slot') viewer = invoke(viewer, 'accessSlotAtIndex', [slotIndex]);
             if (!viewer) fail('API_UNAVAILABLE', 'Bank insert viewer filter returned no object.');
             controlGroups[group] = { available: true, filter: filter, index: slotIndex, pluginIdentity: null };
+            groupScope(group);
         } catch (error) {
             controlGroups[group] = { available: false, error: errorData(error) };
             return;
@@ -1715,17 +2241,18 @@ function createController(api, logger) {
         });
         try {
             viewer.mOnChangePluginIdentity = function (device, mapping, name, vendor, version, format) {
+                if (activation) activation.identity++;
                 if (!activeDevice || !activeMapping || device !== activeDevice || mapping !== activeMapping) return;
                 if ([name, vendor, version, format].some(function (v) { return typeof v !== 'string' || v.length > 4096; })) {
                     clearGroupObservation(group);
-                    controlGroups[group].pluginIdentity = null;
+                    setPluginIdentity(group, null, null);
                     return;
                 }
                 clearGroupObservation(group);
                 try {
                     var current = bankChannelIdentity(index, false);
-                    controlGroups[group].pluginIdentity = { name: name, vendor: vendor, version: version,
-                        formatVersion: format, channelUniqueId: current.uniqueId, channelRuntimeId: current.runtimeId };
+                    setPluginIdentity(group, { name: name, vendor: vendor, version: version,
+                        formatVersion: format, channelUniqueId: current.uniqueId, channelRuntimeId: current.runtimeId }, bankSlots[index]);
                 } catch (error) { markBankError(index, error); }
             };
         } catch (error) { controlGroups[group].identityError = errorData(error); }
@@ -1734,7 +2261,7 @@ function createController(api, logger) {
             try { action = viewer.mAction && viewer.mAction[entry[1]]; } catch (ignored) {}
             var key = group + '.viewer.' + entry[0];
             makeActionControl(key, path + '.mAction.' + entry[1], action);
-            controls[key].bankIndex = index;
+            assignBank(controls[key], index);
         });
         var bank = hostBranch(viewer, 'mParameterBankZone', group + '.bank');
         if (!bank) return;
@@ -1743,7 +2270,7 @@ function createController(api, logger) {
             try { value = invoke(bank, 'makeParameterValue', []); } catch (error) { failure = errorData(error); }
             var key = group + '.parameter.' + parameter;
             makeControl(key, path + '.mParameterBankZone.makeParameterValue(' + parameter + ')', value, false);
-            controls[key].bankIndex = index;
+            assignBank(controls[key], index);
             controls[key].pluginBankGroup = group;
             if (failure) controls[key].error = failure;
         }
@@ -1752,12 +2279,33 @@ function createController(api, logger) {
             try { action = bank.mAction && bank.mAction[entry[1]]; } catch (ignored) {}
             var key = group + '.bank.' + entry[0];
             makeActionControl(key, path + '.mParameterBankZone.mAction.' + entry[1], action);
-            controls[key].bankIndex = index;
+            assignBank(controls[key], index);
         });
     }
+    // Commands stay on the small main page; they are bound before the mixer page is built.
+    commandDefinitions.forEach(function (definition) {
+        if (definition.key === 'project.save') return;
+        var record = { key: 'command.' + definition.key, pageKey: 'main', definition: definition, error: null, revision: 0,
+            bindingEvents: 0, lastEventAt: null, lastRequestId: null };
+        commands[definition.key] = record;
+        try {
+            surface(record);
+            record.binding = invoke(page, 'makeCommandBinding', [record.surface, definition.category, definition.name]);
+            method(record.binding, 'canPerform');
+            try {
+                record.binding.mOnValueChange = function (device, mapping, value) {
+                    if (device === activeDevice && mapping === activeMapping && value === 1) { record.bindingEvents++; record.lastEventAt = Date.now(); }
+                };
+            } catch (ignored) {}
+        } catch (error) {
+            record.error = errorData(error);
+        }
+    });
+    buildPage = mixerPage; buildPageKey = 'mixer';
     var mixerBank = null;
     try {
-        mixerBank = invoke(host && host.mMixConsole, 'makeMixerBankZone', ['CubaseAI MCP']);
+        if (!mixerPage) fail('API_UNAVAILABLE', 'The mixer mapping page is unavailable.', mixerPageError || undefined);
+        mixerBank = invoke(mixerHost && mixerHost.mMixConsole, 'makeMixerBankZone', ['CubaseAI MCP']);
         controlGroups['mixer.bank'] = { available: !!mixerBank };
     } catch (error) { controlGroups['mixer.bank'] = { available: false, error: errorData(error) }; }
     [['previous', 'mPrevBank'], ['next', 'mNextBank'], ['left', 'mShiftLeft'],
@@ -1774,7 +2322,7 @@ function createController(api, logger) {
                 bankChannel = invoke(mixerBank, 'makeMixerBankChannel', []);
                 if (!bankChannel) fail('API_UNAVAILABLE', 'Mixer bank channel was not created.');
             } catch (error) { channelError = errorData(error); }
-            bankSlots[bankIndex] = { channel: bankChannel, uniqueId: null, runtimeId: null, admitted: false };
+            bankSlots[bankIndex] = { channel: bankChannel, uniqueId: null, runtimeId: null, admitted: false, epoch: 0 };
             var channelGroup = 'mixer.channel.' + bankIndex;
             controlGroups[channelGroup] = { available: false, uniqueId: null, runtimeId: null };
             if (channelError) controlGroups[channelGroup].error = channelError;
@@ -1790,7 +2338,7 @@ function createController(api, logger) {
                 try { if (values) hostValue = values[field[1]]; } catch (error) { failure = errorData(error); }
                 makeControl(key, 'mHostAccess.mMixConsole.makeMixerBankZone().makeMixerBankChannel(' + bankIndex + ').mValue.' + field[1],
                     hostValue, false, field[0].indexOf('meter.') === 0);
-                controls[key].bankIndex = bankIndex;
+                assignBank(controls[key], bankIndex);
                 if (failure) controls[key].error = failure;
             });
             var bankPath = 'mHostAccess.mMixConsole.makeMixerBankZone().makeMixerBankChannel(' + bankIndex + ')';
@@ -1843,21 +2391,17 @@ function createController(api, logger) {
             });
         }
     }
-    commandDefinitions.forEach(function (definition) {
-        if (definition.key === 'project.save') return;
-        var record = { key: 'command.' + definition.key, definition: definition, error: null, revision: 0 };
-        commands[definition.key] = record;
-        try {
-            surface(record);
-            record.binding = invoke(page, 'makeCommandBinding', [record.surface, definition.category, definition.name]);
-            record.binding = invoke(record.binding, 'filterByValue', [1]);
-            method(record.binding, 'canPerform');
-        } catch (error) {
-            record.error = errorData(error);
+    buildPage = page; buildPageKey = 'main';
+    // Bind every control to the plug-in group whose identity change must revoke its feedback.
+    Object.keys(controls).forEach(function (key) {
+        var parts = key.split('.');
+        for (var length = parts.length - 1; length >= 1; length--) {
+            var prefix = parts.slice(0, length).join('.');
+            if (groupScopes[prefix]) { controls[key].groupScope = groupScopes[prefix]; break; }
         }
     });
     trace('controller constructed ' + BRIDGE_REVISION);
-    return { deviceDriver: driver, page: page, midiInput: input, midiOutput: output };
+    return { deviceDriver: driver, page: page, mixerPage: mixerPage, midiInput: input, midiOutput: output };
 }
 
 module.exports = { createController: createController };

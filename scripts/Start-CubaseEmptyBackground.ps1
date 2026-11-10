@@ -11,12 +11,16 @@ if ($Background) {
     $out = Join-Path $Runtime "cubase-empty-$LaunchId.stdout.log"
     $err = Join-Path $Runtime "cubase-empty-$LaunchId.stderr.log"
     foreach ($path in @($out,$err)) { $f = [IO.File]::Open($path,[IO.FileMode]::CreateNew); $f.Dispose() }
-    Add-Type -Path (Join-Path $Root 'native\CubaseDesktop.cs')
-    # The detached helper only passes the two log paths. The holder recovers its ID from their names.
-    $holder = [CubaseAiMcp.CubaseDesktop]::StartDetachedHolder(
-        (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'), $PSCommandPath,
-        $null, $out, $err, $Root)
-    [PSCustomObject]@{status='starting'; hostPid=$holder; RunId=$LaunchId; launchId=$LaunchId; project=$null; stdoutFile=$out; stderrFile=$err} | ConvertTo-Json
+    $node = (Get-Command node.exe -CommandType Application).Source
+    $supervisor = Join-Path $PSScriptRoot 'start-empty-holder.cjs'
+    $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow=[uint16]0; CreateFlags=[uint32]0x01000008 }
+    $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+        CommandLine = "`"$node`" `"$supervisor`" $LaunchId"
+        CurrentDirectory = $Root
+        ProcessStartupInformation = $startup
+    }
+    if($created.ReturnValue -ne 0 -or $created.ProcessId -le 0){throw "Owned holder creation failed: $($created.ReturnValue)"}
+    [PSCustomObject]@{status='starting'; hostPid=$created.ProcessId; RunId=$LaunchId; launchId=$LaunchId; project=$null; stdoutFile=$out; stderrFile=$err} | ConvertTo-Json
     return
 }
 $prefix = [IO.Path]::GetFullPath($Runtime).TrimEnd('\') + '\'

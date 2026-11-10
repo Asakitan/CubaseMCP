@@ -137,8 +137,26 @@ namespace CubaseAiMcp
                     BitConverter.ToInt64(request, 24) != holderCreation) throw new InvalidDataException("Creation request identity mismatch.");
                 string destination = Encoding.Unicode.GetString(request, 48, 1024).Split('\0')[0];
                 uint operation = BitConverter.ToUInt32(request, 20);
-                if (operation < 1 || operation > 3 || !Path.IsPathRooted(destination) || Path.GetExtension(destination).ToLowerInvariant() != ".cpr" ||
-                    (operation == 2 ? !File.Exists(destination) : File.Exists(destination)))
+                string extension = Path.GetExtension(destination).ToLowerInvariant();
+                if (operation < 1 || operation > 12 || !Path.IsPathRooted(destination))
+                    throw new InvalidDataException("The operation or its path is not admitted.");
+                if (operation == 4)
+                {
+                    // Operation 4 merges an existing Standard MIDI File into the managed project.
+                    if ((extension != ".mid" && extension != ".midi") || !File.Exists(destination))
+                        throw new InvalidDataException("The import source is not an existing MIDI file.");
+                }
+                else if (operation == 6)
+                {
+                    if ((extension != ".wav" && extension != ".aif" && extension != ".aiff" && extension != ".flac") || !File.Exists(destination))
+                        throw new InvalidDataException("Audio import requires an existing supported source.");
+                }
+                else if (operation == 5)
+                {
+                    if ((extension != ".wav" && extension != ".aif" && extension != ".aiff" && extension != ".flac") || File.Exists(destination))
+                        throw new InvalidDataException("Audio export requires a new supported output path.");
+                }
+                else if (extension != ".cpr" || (operation == 2 || operation >= 7 ? !File.Exists(destination) : File.Exists(destination)))
                     throw new InvalidDataException("Creation destination is not a new absolute CPR.");
                 uint entry = EntryRva(report.ModulePath, "StartProjectCreate");
                 using (Process target = Process.GetProcessById(processId))

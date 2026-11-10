@@ -1,12 +1,225 @@
 'use strict';
 
-module.exports = Object.freeze([
-    Object.freeze({ key: 'edit.undo', category: 'Edit', name: 'Undo',
-        context: 'Acts on the active Cubase undo context; no selection is created.' }),
-    Object.freeze({ key: 'edit.redo', category: 'Edit', name: 'Redo',
-        context: 'Acts on the active Cubase redo context; no selection is created.' }),
-    Object.freeze({ key: 'midi.quantize', category: 'Quantize Category', name: 'Quantize',
-        context: 'Uses the current selection and quantize settings; no editor is opened or focused.' }),
-    Object.freeze({ key: 'project.save', category: 'File', name: 'Save',
-        context: 'Acts on the current Cubase project; destination and completion are determined by Cubase.' })
-]);
+// Fixed key-command allowlist. Category and name are the installed Cubase AI 16.0.5
+// identifiers (see docs/command-allowlist-30.md); nothing outside this table can be bound
+// or executed. A listed command is a submission path, not proof of a project change:
+// callers verify the result through discovery, parameters or exported files.
+// `live` records the session-30 private-desktop observation for this exact build:
+//   'verified'  - executed through MCP with the described effect observed
+//   'submitted' - bound and performable in at least one context; effect not independently observed
+//   'unverified'- bound only; no live execution recorded
+// `tool` names the MCP tool that must drive a command whose safe use needs preparation; the
+// bridge rejects a direct execution of such a command.
+function command(key, category, name, group, context, live, tool) {
+    var definition = { key: key, category: category, name: name, group: group, context: context, live: live || 'unverified' };
+    if (tool) definition.tool = tool;
+    return Object.freeze(definition);
+}
+
+var selection = 'Acts on the current event or range selection in the active project.';
+var tracks = 'Acts on the currently selected tracks.';
+var cursor = 'Uses the project cursor position.';
+var marker = 'Uses the marker track of the active project.';
+
+var definitions = [
+    command('edit.undo', 'Edit', 'Undo', 'edit', 'Acts on the active Cubase undo context; no selection is created.', 'verified'),
+    command('edit.redo', 'Edit', 'Redo', 'edit', 'Acts on the active Cubase redo context; no selection is created.', 'verified'),
+    command('edit.cut', 'Edit', 'Cut', 'edit', selection, 'verified'),
+    command('edit.copy', 'Edit', 'Copy', 'edit', selection, 'submitted'),
+    command('edit.paste', 'Edit', 'Paste', 'edit', 'Pastes the clipboard at the project cursor on the selected track.', 'verified'),
+    command('edit.pasteAtOrigin', 'Edit', 'Paste at Origin', 'edit', 'Pastes the clipboard at its original position.', 'verified'),
+    command('edit.delete', 'Edit', 'Delete', 'edit', selection, 'verified'),
+    command('edit.duplicate', 'Edit', 'Duplicate', 'edit', selection, 'verified'),
+    command('edit.selectAll', 'Edit', 'Select All', 'edit', 'Selects all events in the active editor or project window.', 'submitted'),
+    command('edit.selectNone', 'Edit', 'Select None', 'edit', 'Clears the event selection.', 'submitted'),
+    command('edit.selectAllOnTracks', 'Edit', 'Select All on Tracks', 'edit', 'Selects every event on the selected tracks.', 'submitted'),
+    command('edit.selectInLoop', 'Edit', 'Select in Loop', 'edit', 'Selects events between the locators.', 'submitted'),
+    command('edit.selectFromStartToCursor', 'Edit', 'Select from Start to Cursor', 'edit', cursor, 'submitted'),
+    command('edit.selectFromCursorToEnd', 'Edit', 'Select from Cursor to End', 'edit', cursor, 'submitted'),
+    command('edit.selectEventsUnderCursor', 'Edit', 'Select Events under Cursor', 'edit', cursor, 'submitted'),
+    command('edit.invertSelection', 'Edit', 'Invert Selection', 'edit', selection, 'submitted'),
+    command('edit.splitAtCursor', 'Edit', 'Split at Cursor', 'edit', 'Splits selected events, or all events, at the project cursor.', 'submitted'),
+    command('edit.splitLoop', 'Edit', 'Split Loop', 'edit', 'Splits events at both locators.', 'submitted'),
+    command('edit.glue', 'Edit', 'Glue', 'edit', selection, 'submitted'),
+    command('edit.moveToCursor', 'Edit', 'Move to Cursor', 'edit', 'Moves the selected events to the project cursor.', 'verified'),
+    command('edit.moveToFront', 'Edit', 'Move to Front', 'edit', selection, 'submitted'),
+    command('edit.moveToBack', 'Edit', 'Move to Back', 'edit', selection, 'submitted'),
+    command('edit.muteEvents', 'Edit', 'Mute Events', 'edit', selection, 'verified'),
+    command('edit.unmuteEvents', 'Edit', 'Unmute Events', 'edit', selection, 'verified'),
+    command('edit.cutTime', 'Edit', 'Cut Time', 'edit', 'Removes the selected range and closes the gap.', 'verified'),
+    command('edit.deleteTime', 'Edit', 'Delete Time', 'edit', 'Deletes the selected range and closes the gap.', 'verified'),
+    command('edit.pasteTime', 'Edit', 'Paste Time', 'edit', 'Inserts the clipboard range at the cursor.', 'verified'),
+    command('edit.insertSilence', 'Edit', 'Insert Silence', 'edit', 'Inserts empty space for the selected range.', 'verified'),
+    command('edit.splitRange', 'Edit', 'Split Range', 'edit', 'Splits events at the selected range borders.'),
+    command('edit.cropRange', 'Edit', 'Crop Range', 'edit', 'Keeps only the selected range of the affected events.'),
+    command('edit.fillLoop', 'Edit', 'Fill Loop', 'edit', 'Repeats the selection until the right locator.', 'submitted'),
+    command('edit.globalCopy', 'Edit', 'Global Copy', 'edit', 'Copies the selected range on all tracks.', 'submitted'),
+    command('edit.leftSelectionSideToCursor', 'Edit', 'Left Selection Side to Cursor', 'edit', cursor),
+    command('edit.rightSelectionSideToCursor', 'Edit', 'Right Selection Side to Cursor', 'edit', cursor),
+    command('edit.deactivateAllSolo', 'Edit', 'Deactivate All Solo', 'edit', 'Clears every solo state.', 'verified'),
+    command('edit.unmuteAll', 'Edit', 'Unmute All', 'edit', 'Clears every channel mute state.', 'verified'),
+    command('edit.transposeUp', 'Edit', 'Transpose Up', 'edit', selection, 'verified'),
+    command('edit.transposeDown', 'Edit', 'Transpose Down', 'edit', selection, 'verified'),
+
+    // Only the AddTrack commands that add a track without opening the Add Track dialog are listed.
+    // MIDI and instrument tracks are created by importing MIDI data (cubase_midi_import).
+    command('track.add.audioMono', 'AddTrack', 'Audio Mono', 'track', 'Adds one mono audio track with the host defaults.', 'verified'),
+    command('track.add.marker', 'AddTrack', 'Marker', 'track', 'Adds the marker track if the project has none.', 'submitted'),
+    command('track.add.chord', 'AddTrack', 'Chord', 'track', 'Adds the chord track if the project has none.', 'submitted'),
+    command('track.add.video', 'AddTrack', 'Video', 'track', 'Adds the video track if the project has none.', 'submitted'),
+    // Cubase asks for confirmation when a selected track still has content, and that prompt cannot
+    // be answered here. cubase_track_edit removes the events of the track first.
+    command('track.removeSelected', 'Project', 'Remove Selected Tracks', 'track',
+        'Removes the selected tracks. Only reachable through cubase_track_edit, which empties the track first.', 'verified', 'cubase_track_edit'),
+    command('track.removeEmpty', 'Project', 'Remove Empty Tracks', 'track', 'Removes every track that contains no events.', 'verified'),
+    command('track.duplicate', 'Project', 'Duplicate Tracks', 'track', tracks, 'verified'),
+    command('track.select.next', 'Project', 'Select Track: Next', 'track', 'Moves the track selection down.', 'verified'),
+    command('track.select.previous', 'Project', 'Select Track: Prev', 'track', 'Moves the track selection up.', 'verified'),
+    command('track.select.addNext', 'Project', 'Select Track: Add Next', 'track', 'Extends the track selection down.', 'verified'),
+    command('track.select.addPrevious', 'Project', 'Select Track: Add Prev', 'track', 'Extends the track selection up.', 'verified'),
+    command('track.move.previous', 'Project', 'Move Selected Tracks/Channels to Previous Available Position', 'track', tracks, 'verified'),
+    command('track.move.next', 'Project', 'Move Selected Tracks/Channels to Next Available Position', 'track', tracks, 'verified'),
+    command('track.move.first', 'Project', 'Move Selected Tracks/Channels to First Available Position', 'track', tracks, 'verified'),
+    command('track.move.last', 'Project', 'Move Selected Tracks/Channels to Last Available Position', 'track', tracks, 'verified'),
+    command('track.toggle.solo', 'Edit', 'Solo', 'track', tracks, 'verified'),
+    command('track.toggle.mute', 'Edit', 'Mute', 'track', tracks, 'verified'),
+    command('track.toggle.recordEnable', 'Edit', 'Record Enable', 'track', tracks, 'verified'),
+    command('track.toggle.monitor', 'Edit', 'Monitor', 'track', tracks, 'verified'),
+    command('track.toggle.read', 'Edit', 'Read', 'track', tracks, 'verified'),
+    command('track.toggle.write', 'Edit', 'Write', 'track', tracks, 'verified'),
+    command('track.freezeToggle', 'Edit', 'Freeze/Unfreeze Selected Tracks (with Current Settings)', 'track', tracks),
+
+    command('transport.start', 'Transport', 'Start', 'transport', 'Starts playback from the project cursor.', 'verified'),
+    command('transport.stop', 'Transport', 'Stop', 'transport', 'Stops playback or recording.', 'verified'),
+    command('transport.startStop', 'Transport', 'StartStop', 'transport', 'Toggles playback.', 'verified'),
+    command('transport.record', 'Transport', 'Record', 'transport', 'Starts recording on the record-enabled tracks.', 'verified'),
+    command('transport.cycle', 'Transport', 'Cycle', 'transport', 'Toggles cycle mode.', 'verified'),
+    command('transport.returnToZero', 'Transport', 'Return to Zero', 'transport', 'Moves the cursor to the project start.', 'verified'),
+    command('transport.gotoEnd', 'Transport', 'Goto End', 'transport', 'Moves the cursor to the project end.', 'verified'),
+    command('transport.restart', 'Transport', 'Restart', 'transport', 'Restarts playback from the last start position.', 'verified'),
+    command('transport.toLeftLocator', 'Transport', 'To Left Locator', 'transport', 'Moves the cursor to the left locator.', 'verified'),
+    command('transport.toRightLocator', 'Transport', 'To Right Locator', 'transport', 'Moves the cursor to the right locator.', 'verified'),
+    command('transport.setLeftLocator', 'Transport', 'Set Left Locator', 'transport', 'Sets the left locator to the cursor.', 'verified'),
+    command('transport.setRightLocator', 'Transport', 'Set Right Locator', 'transport', 'Sets the right locator to the cursor.', 'verified'),
+    command('transport.exchangeLocators', 'Transport', 'Exchange Locator Positions', 'transport', 'Swaps the cursor with the left locator.', 'verified'),
+    command('transport.locatorsToSelection', 'Transport', 'Locators to Selection', 'transport', selection, 'verified'),
+    command('transport.locateSelection', 'Transport', 'Locate Selection', 'transport', selection, 'verified'),
+    command('transport.locateSelectionEnd', 'Transport', 'Locate Selection End', 'transport', selection, 'verified'),
+    command('transport.loopSelection', 'Transport', 'Loop Selection', 'transport', selection, 'verified'),
+    command('transport.locateNextEvent', 'Transport', 'Locate Next Event', 'transport', tracks, 'verified'),
+    command('transport.locatePreviousEvent', 'Transport', 'Locate Previous Event', 'transport', tracks, 'verified'),
+    command('transport.stepBar', 'Transport', 'Step Bar', 'transport', 'Moves the cursor one bar forward.', 'verified'),
+    command('transport.stepBackBar', 'Transport', 'Step Back Bar', 'transport', 'Moves the cursor one bar back.', 'verified'),
+    command('transport.metronomeOn', 'Transport', 'Metronome On', 'transport', 'Toggles the metronome click.', 'verified'),
+    command('transport.precountOn', 'Transport', 'Precount On', 'transport', 'Toggles the record precount.', 'verified'),
+    command('transport.autoPunchIn', 'Transport', 'Auto Punch In', 'transport', 'Toggles punch in.', 'verified'),
+    command('transport.autoPunchOut', 'Transport', 'Auto Punch Out', 'transport', 'Toggles punch out.', 'verified'),
+    command('transport.retrospectiveRecordLinear', 'Transport', 'MIDI Retrospective Record: Insert from Track Input as Linear Recording', 'transport', 'Inserts buffered MIDI input of the selected track.'),
+    command('transport.retrospectiveRecordEmpty', 'Transport', 'MIDI Retrospective Record: Empty All Buffers', 'transport', 'Clears every retrospective MIDI buffer.'),
+
+    command('marker.insert', 'Transport', 'Insert Marker', 'marker', 'Inserts a position marker at the project cursor.', 'verified'),
+    command('marker.insertCycle', 'Transport', 'Insert Cycle Marker', 'marker', 'Inserts a cycle marker spanning the locators.', 'submitted'),
+    command('marker.locateNext', 'Transport', 'Locate Next Marker', 'marker', marker, 'verified'),
+    command('marker.locatePrevious', 'Transport', 'Locate Previous Marker', 'marker', marker, 'verified'),
+    command('marker.to1', 'Transport', 'To Marker 1', 'marker', marker, 'verified'),
+    command('marker.to2', 'Transport', 'To Marker 2', 'marker', marker, 'verified'),
+    command('marker.to3', 'Transport', 'To Marker 3', 'marker', marker, 'verified'),
+    command('marker.to4', 'Transport', 'To Marker 4', 'marker', marker, 'verified'),
+    command('marker.to5', 'Transport', 'To Marker 5', 'marker', marker, 'verified'),
+    command('marker.to6', 'Transport', 'To Marker 6', 'marker', marker, 'verified'),
+    command('marker.to7', 'Transport', 'To Marker 7', 'marker', marker, 'verified'),
+    command('marker.to8', 'Transport', 'To Marker 8', 'marker', marker, 'verified'),
+    command('marker.to9', 'Transport', 'To Marker 9', 'marker', marker, 'verified'),
+    command('marker.set1', 'Transport', 'Set Marker 1', 'marker', marker, 'submitted'),
+    command('marker.set2', 'Transport', 'Set Marker 2', 'marker', marker, 'submitted'),
+    command('marker.set3', 'Transport', 'Set Marker 3', 'marker', marker, 'submitted'),
+    command('marker.set4', 'Transport', 'Set Marker 4', 'marker', marker, 'submitted'),
+    command('marker.set5', 'Transport', 'Set Marker 5', 'marker', marker, 'submitted'),
+    command('marker.set6', 'Transport', 'Set Marker 6', 'marker', marker, 'submitted'),
+    command('marker.set7', 'Transport', 'Set Marker 7', 'marker', marker, 'submitted'),
+    command('marker.set8', 'Transport', 'Set Marker 8', 'marker', marker, 'submitted'),
+    command('marker.set9', 'Transport', 'Set Marker 9', 'marker', marker, 'submitted'),
+
+    command('midi.quantize', 'MIDI', 'Quantize', 'midi', 'Uses the current selection and quantize settings; no editor is opened or focused.', 'verified'),
+    command('midi.iterativeQuantize', 'MIDI', 'Iterative Quantize', 'midi', selection, 'submitted'),
+    command('midi.undoQuantize', 'MIDI', 'Undo Quantize', 'midi', selection, 'submitted'),
+    command('midi.freezeQuantize', 'MIDI', 'Freeze Quantize', 'midi', selection, 'submitted'),
+    command('midi.quantizeLengths', 'MIDI', 'Quantize Lengths', 'midi', selection, 'submitted'),
+    command('midi.quantizeEnds', 'MIDI', 'Quantize Ends', 'midi', selection, 'verified'),
+    command('midi.fixedLengths', 'MIDI', 'Fixed Lengths', 'midi', selection, 'verified'),
+    command('midi.legato', 'MIDI', 'Legato', 'midi', selection, 'verified'),
+    command('midi.deleteDoubles', 'MIDI', 'Delete Doubles', 'midi', selection, 'submitted'),
+    command('midi.deleteControllers', 'MIDI', 'Delete Controllers', 'midi', selection, 'verified'),
+    command('midi.deleteContinuousControllers', 'MIDI', 'Delete Continuous Controllers', 'midi', selection, 'verified'),
+    command('midi.deleteOverlapsMono', 'MIDI', 'Delete Overlaps (mono)', 'midi', selection, 'submitted'),
+    command('midi.deleteOverlapsPoly', 'MIDI', 'Delete Overlaps (poly)', 'midi', selection, 'submitted'),
+    command('midi.reverse', 'MIDI', 'Reverse', 'midi', selection, 'verified'),
+    command('midi.mirror', 'MIDI', 'Mirror', 'midi', selection, 'verified'),
+    command('midi.fixedVelocity', 'MIDI', 'Fixed Velocity', 'midi', selection, 'verified'),
+    command('midi.pedalsToNoteLength', 'MIDI', 'Pedals to Note Length', 'midi', selection, 'submitted'),
+    command('midi.thinOut', 'MIDI', 'Thin Out', 'midi', selection, 'submitted'),
+    command('midi.insertVelocity.1', 'MIDI', 'Insert Velocity 1', 'midi', 'Selects insert velocity preset 1, used by Fixed Velocity.', 'submitted'),
+    command('midi.insertVelocity.2', 'MIDI', 'Insert Velocity 2', 'midi', 'Selects insert velocity preset 2, used by Fixed Velocity.', 'verified'),
+    command('midi.insertVelocity.3', 'MIDI', 'Insert Velocity 3', 'midi', 'Selects insert velocity preset 3, used by Fixed Velocity.', 'verified'),
+    command('midi.insertVelocity.4', 'MIDI', 'Insert Velocity 4', 'midi', 'Selects insert velocity preset 4, used by Fixed Velocity.', 'verified'),
+    command('midi.insertVelocity.5', 'MIDI', 'Insert Velocity 5', 'midi', 'Selects insert velocity preset 5, used by Fixed Velocity.', 'verified'),
+    // The quantize grid, Auto Quantize and Repeat Loop commands are only performable inside a MIDI editor,
+    // which this server never opens; they are not listed.
+    command('midi.sendAllNotesOff', 'MIDI', 'Send All Notes Off Message', 'midi', 'Sends All Notes Off to every MIDI output.', 'submitted'),
+    command('midi.reset', 'MIDI', 'Reset', 'midi', 'Sends a MIDI reset to every MIDI output.', 'submitted'),
+
+    command('audio.eventsToPart', 'Audio', 'Events to Part', 'audio', selection),
+    command('audio.dissolvePart', 'Audio', 'Dissolve Part', 'audio', selection),
+    command('audio.crossfade', 'Audio', 'Crossfade', 'audio', selection),
+    command('audio.removeFades', 'Audio', 'Remove Fades', 'audio', selection),
+    command('audio.adjustFadesToRange', 'Audio', 'Adjust Fades to Range', 'audio', selection),
+    command('audio.eventVolumeUp', 'Audio', 'Increment Event Volume', 'audio', selection),
+    command('audio.eventVolumeDown', 'Audio', 'Decrement Event Volume', 'audio', selection),
+    command('audio.fadeInLonger', 'Audio', 'Increment Fade In Length', 'audio', selection),
+    command('audio.fadeInShorter', 'Audio', 'Decrement Fade In Length', 'audio', selection),
+    command('audio.fadeOutLonger', 'Audio', 'Increment Fade Out Length', 'audio', selection),
+    command('audio.fadeOutShorter', 'Audio', 'Decrement Fade Out Length', 'audio', selection),
+    command('audio.closeGaps', 'Audio', 'Close Gaps', 'audio', selection),
+    command('audio.deleteOverlaps', 'Audio', 'Delete Overlaps', 'audio', selection),
+    command('audio.toOrigin', 'Audio', 'To Origin', 'audio', selection),
+    command('audio.stretchToProjectTempo', 'Audio', 'Stretch to Project Tempo', 'audio', selection),
+    command('audio.invertPhase', 'Audio', 'Invert Phase On/Off', 'audio', selection, 'submitted'),
+
+    command('nudge.left', 'Nudge', 'Left', 'nudge', 'Moves the selection one grid step earlier.', 'submitted'),
+    command('nudge.right', 'Nudge', 'Right', 'nudge', 'Moves the selection one grid step later.', 'verified'),
+    command('nudge.startLeft', 'Nudge', 'Start Left', 'nudge', 'Moves the selection start one grid step earlier.', 'submitted'),
+    command('nudge.startRight', 'Nudge', 'Start Right', 'nudge', 'Moves the selection start one grid step later.', 'verified'),
+    command('nudge.endLeft', 'Nudge', 'End Left', 'nudge', 'Moves the selection end one grid step earlier.', 'verified'),
+    command('nudge.endRight', 'Nudge', 'End Right', 'nudge', 'Moves the selection end one grid step later.', 'submitted'),
+
+    command('navigate.left', 'Navigate', 'Left', 'navigate', 'Moves the event selection to the previous event.', 'submitted'),
+    command('navigate.right', 'Navigate', 'Right', 'navigate', 'Moves the event selection to the next event.', 'submitted'),
+    command('navigate.up', 'Navigate', 'Up', 'navigate', 'Moves the selection one track up.', 'verified'),
+    command('navigate.down', 'Navigate', 'Down', 'navigate', 'Moves the selection one track down.', 'submitted'),
+    command('navigate.addLeft', 'Navigate', 'Add Left', 'navigate', 'Extends the event selection to the previous event.', 'submitted'),
+    command('navigate.addRight', 'Navigate', 'Add Right', 'navigate', 'Extends the event selection to the next event.', 'submitted'),
+    command('navigate.addUp', 'Navigate', 'Add Up', 'navigate', 'Extends the selection one track up.', 'verified'),
+    command('navigate.addDown', 'Navigate', 'Add Down', 'navigate', 'Extends the selection one track down.', 'submitted'),
+    command('navigate.top', 'Navigate', 'Top', 'navigate', 'Selects the first track.', 'verified'),
+    command('navigate.bottom', 'Navigate', 'Bottom', 'navigate', 'Selects the last track.', 'verified'),
+    command('navigate.toggleSelection', 'Navigate', 'Toggle Selection', 'navigate', 'Toggles the selection of the focused item.'),
+
+    command('automation.toggleReadAll', 'Automation', 'Toggle Read Enable All Tracks', 'automation', 'Toggles automation read on every track.', 'verified'),
+    command('automation.toggleWriteAll', 'Automation', 'Toggle Write Enable All Tracks', 'automation', 'Toggles automation write on every track.', 'verified'),
+    command('automation.toggleReadSelected', 'Automation', 'Toggle Read Enable Selected Tracks', 'automation', tracks, 'verified'),
+    command('automation.toggleWriteSelected', 'Automation', 'Toggle Write Enable Selected Tracks', 'automation', tracks, 'verified'),
+
+    command('mixer.bypassInserts', 'Mixer', 'Bypass: Inserts', 'mixer', 'Toggles insert bypass on the selected channels.', 'submitted'),
+    command('mixer.bypassEqs', 'Mixer', 'Bypass: EQs', 'mixer', 'Toggles EQ bypass on the selected channels.', 'submitted'),
+    command('mixer.bypassSends', 'Mixer', 'Bypass: Sends', 'mixer', 'Toggles send bypass on the selected channels.', 'submitted'),
+    command('mixer.bypassChannelStrip', 'Mixer', 'Bypass: Channel Strip', 'mixer', 'Toggles channel strip bypass on the selected channels.', 'submitted'),
+    command('mixer.armAllAudio', 'Mixer', 'Arm All Audio Tracks', 'mixer', 'Record-enables every audio track.', 'verified'),
+    command('mixer.disarmAllAudio', 'Mixer', 'Disarm All Audio Tracks', 'mixer', 'Clears record enable on every audio track.', 'verified'),
+
+    command('export.openMixdownWindow', 'File', 'Export Audio Mixdown', 'project', 'Opens the export window of the host on the private desktop. Only reachable through cubase_audio_export.', 'verified', 'cubase_audio_export'),
+    command('export.perform', 'Audio Export', 'Perform Audio Export', 'project', 'Runs the export with the settings of the open export window. Only reachable through cubase_audio_export.', 'verified', 'cubase_audio_export'),
+    command('midi.writeFileToProjectFolder', 'File', 'Write MIDI File to Project Folder', 'project', 'Writes a Standard MIDI File for the active project into the project folder.', 'verified'),
+    command('project.save', 'File', 'Save', 'project', 'Acts on the current Cubase project; destination and completion are determined by Cubase.', 'verified')
+];
+
+module.exports = Object.freeze(definitions);

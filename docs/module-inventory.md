@@ -3,17 +3,17 @@
 | Source | Runtime target | Status |
 | --- | --- | --- |
 | `src/config.ts` | `dist/src/config.js` | Literal policy parser verified |
-| `src/server.ts` | `dist/src/server.js` | 30 tools; 3.13 MIDI bridge gate and explicit native owned lifecycle |
+| `src/server.ts` | `dist/src/server.js` | 53 tools; 199 tests and final native track/instrument/folder/send/automation fresh-reopen acceptance passed |
 | `src/bridge-contract.ts` | `dist/src/bridge-contract.js` | Shared host/revision/active-session gate; operational readiness is explicit |
 | `src/doctor.ts` | `dist/src/doctor.js` | Reports operational readiness separately from handshake availability |
-| `src/midi.ts` | `dist/src/midi.js` | Exact ports, deadlines, fault latch and prepared Save input/release/return; focused tests passed |
+| `src/midi.ts` | `dist/src/midi.js` | Exact ports, deadlines, fault latch, prepared Save input/release/return, and recovery of a lost response by request ID without resending; tests passed |
 | `remote/protocol.js` | Driver folder and `dist/remote/protocol.js` | 2 protocol tests passed |
-| `remote/controller.js` | Driver folder | Coverage 3.13 installed and active; minimal Save page and initial-tempo handoff; other controls are not blanket live-certified |
+| `remote/controller.js` | Driver folder | Coverage 3.14 installed and active; O(1) feedback callbacks, main/mixer/Save pages, activation counters, channel and transport operations, response replay; both formerly unconfirmed volume writes confirmed live |
 | `remote/CubaseAI_MCP.js` | Driver entry | Top-level CommonJS export removed; ES5 regression passed and current host logged controller construction |
-| `remote/commands.js` | Driver command allowlist | 4 fixed bindings; distinct current-project Save and fresh-reopen tempo persistence observed; earlier outcomes preserved |
+| `remote/commands.js` | Driver command allowlist | 181 fixed bindings with a per-command live result; three are reachable only through their composite tool; commands that opened a window are excluded |
 | `scripts/Install-Remote.ps1` | Local driver installation | Four files deployed; no Cubase launch |
 | `.vscode/mcp.json` | VS Code stdio server | Configured against built entry |
-| `.vscode/tasks.json` | Build/test/install/live-diagnostic tasks | Historical 3.9 full suite 109/109; current build, focused Save checks and concrete real MCP persistence chain passed |
+| `.vscode/tasks.json` | Build/test/install/live-diagnostic tasks | Session-34 native/TypeScript builds and full suite 199/199 passed |
 | `scripts/Install-Midi.ps1` | Installed loopMIDI/virtualMIDI driver | Explicit installation completed |
 | `native/MidiPortHost.cs` | Hidden PowerShell port process | Real SysEx loopbacks and client-PID query tested |
 | `scripts/Start-MidiPorts.ps1` | Two exact-name virtual ports | Running with explicit stop and correlated one-shot client inspection |
@@ -119,14 +119,44 @@
 | `scripts/Invoke-MinimalSave30.ps1`, `scripts/verify-mcp-save31.cjs`, `docs/project-save-chain-28.md` | Owned lifetime-bound real MCP Save/reopen observation | Profile 32: 146.75, changed CPR and fresh 3.13 reopen readback; no replay |
 | `scripts/Prepare-CommandInput28.ps1`, `scripts/Invoke-CommandInput28.ps1`, `scripts/verify-command-input28.cjs`, `scripts/Invoke-CommandHold29.ps1`, `scripts/verify-command-hold29.cjs` | Historical fixed physical-input experiments | Large-page short and held input attempts did not establish Save; consumed admissions retained |
 | `scripts/Use-WorkspaceTemp.ps1` | Task-child process temporary directory on E | Used by owned launch/diagnostic wrappers; C cleanup manifest retains 12 moved file records |
-| `src/lifecycle.ts`, `scripts/Project-Runtime.ps1` | Formal owned lifecycle coordinator | Real MCP create, save-as, open, status and stop observed; no generic editor/command endpoint |
+| `src/lifecycle.ts`, `scripts/Project-Runtime.ps1` | Formal owned lifecycle coordinator | Real MCP lifecycle observed; one recorded pre-admission license-startup recovery stops owned Cubase then exact helper; no operation replay |
+| `scripts/start-empty-holder.cjs`, `scripts/Start-CubaseEmptyBackground.ps1` | Fixed independent Node/PowerShell holder | Ordinary MCP launches passed without an external test launcher; private desktop and restricted Job retained |
 | `native/ProjectCreateLoader.cs`, `native/bridge/CubaseProjectCreate.cpp`, `native/bridge/OwnedHostSupport.h`, `scripts/Build-ProjectRuntime.ps1` | Fixed native initializer on the owned event thread | Builds passed; document path binding and native operations observed on a blank CPR; other project contents not certified |
 | `tests/lifecycle.test.cjs`, `docs/background-project-lifecycle.md`, `docs/feature-coverage-29.md` | Lifecycle contracts and eleven-family matrix | Focused routing/admission and live lifecycle observations separated from open editing work |
+| `src/smf.ts`, `tests/smf.test.cjs` | `dist/src/smf.js` | Dependency-free Standard MIDI File parser and builder; 23 tests |
+| `src/song.ts`, `tests/song.test.cjs` | `dist/src/song.js` | Beat-based song to MIDI file, MIDI file to beat view, and read-only observation of files the host writes; 11 tests |
+| `src/wav.ts`, `tests/wav.test.cjs` | `dist/src/wav.js` | Read-only WAVE format and level inspection for exported audio; 12 tests |
+| `src/audio-info.ts`, `native/bridge/NativeAudioExport.h`, `docs/native-file-services-31.md` | Audio metadata reader and native operation 5 | Builds and 3 focused contracts passed; real MCP WAV24, AIFF16, FLAC24 and WAV32-float outputs matched requested path/rate/depth |
+| `scripts/call-mcp31.cjs` | One-shot real stdio MCP acceptance client | Records schema admission, session and one tool result in a new JSONL; never repeats a mutation |
+| `native/bridge/NativeAudioImport.h`, `cubase_audio_import` | Native operation 6, source copy and added-channel read-back | Build and focused contract passed; real AIFF import added one channel and rendered audible audio |
+| `native/bridge/NativeProjectModel.h`, `cubase_events_list`, `cubase_event_edit`, `cubase_midi_note_edit` | Native operations 7/8, bounded tree and guarded field setters | Audio move/trim and four single-note fields confirmed; exact note identity and old-state rejection; all three context time bases corrected and inverse checked; semantic fresh reopen observed |
+| `tests/song-tools.test.cjs`, `tests/lifecycle.test.cjs` | In-memory MCP and PowerShell startup contracts | Track-type confirmation, send-slot identity, automation actions and startup stop-order/rejection tests passed |
+| `native/bridge/NativeProjectModel.h`, `cubase_track_create` | Native operation 9 | MIDI/instrument/Group/FX/folder construction; Group/FX factory tokens corrected; fresh-reopen semantic acceptance passed |
+| `native/bridge/NativePluginServices.h`, `cubase_plugin_unload` | Native operation 10 | MonoDelay load/unload and empty-slot confirmation observed without a prompt |
+| `native/bridge/NativeRouting.h`, `cubase_routes_list`, `cubase_routing_set` | Native operation 11 | Audio and send bus targets; independent MIDI feedback and output/send fresh-reopen persistence passed |
+| `native/bridge/NativeAutomation.h`, `cubase_automation_read`, `cubase_automation_edit` | Native operation 12 | Lane creation and point read/insert/change/move/delete; six edited points retained in final fresh-reopen check |
+| `scripts/verify-automation33.cjs`, `scripts/verify-plugin-unload33.cjs`, `scripts/verify-contracts33.cjs`, `scripts/Invoke-Contracts33Reopen.ps1` | Fixed live acceptance and historical external launcher | Final extended ordinary-MCP acceptance passed; external launcher no longer required; original failed ledgers retained |
+| `scripts/Read-TrackConnections33.ps1`, `docs/native-host-contracts-33.md` | Read-only connection and crash analysis | Group/FX null device pointers and two matching destroyed-track access-violation dumps documented |
+| `docs/native-host-contracts-34.md` | Current host contract and acceptance | Device-token fix, instrument/folder/send persistence, 199 tests and bounded MCP startup recovery documented |
+| `scripts/Project-Runtime.ps1` action `import_midi`, `native/bridge/CubaseProjectCreate.cpp` operation 4 | Native MIDI file import on the owned event thread | Built; import and exact read-back observed through real MCP |
+| `scripts/Read-OwnedDesktopWindows.ps1` | Read-only window inventory of the owned process | Optional bounded child-text read; observed error-window inventory, but no child text returned; never sends a message |
+| `scripts/verify-song30.cjs` | Live acceptance through the real stdio MCP server | 28 of 28 checks in run `e2e1`; evidence `artifacts/ipc/song30-live-e2e1.json` |
+| `scripts/verify-plugin30.cjs` | Live insert load, viewer writes and replacement through the real stdio MCP server | Evidence `artifacts/ipc/plugin-insert30-live-*.json` |
+| `scripts/verify-commands30.cjs`, `scripts/summarize-commands30.cjs`, `scripts/probe-commands30.cjs`, `docs/command-allowlist-30.md` | Live execution of every allowlisted command with window, channel, transport and MIDI read-back | One result per command; generated document; ledgers in `artifacts/ipc/command-verify30-*.jsonl` |
+| `scripts/verify-controls30.cjs`, `scripts/summarize-controls30.cjs`, `docs/control-sweep-30.md` | Live write of every writable binding control with host feedback as confirmation | 645 of 2550 controls confirmed; generated document; ledgers in `artifacts/ipc/control-sweep30-*.jsonl` |
+| `diagnostics/binding-scale-30/`, `scripts/run-binding-scale30.cjs`, `tests/binding-scale-30.test.cjs`, `docs/binding-root-cause-30.md` | Multi-page diagnostic controller for the binding failure, not the MCP runtime | Live runs isolated callback cost as the cause; offline fixture test passes |
+| `scripts/Invoke-GhidraDecompile30.ps1`, `scripts/find-string-refs.py`, `scripts/read-image-strings.py`, `scripts/read-image-pointers.py`, `scripts/annotate-decompile.py` | Static read-only helpers used to locate the host MIDI import path | Analysis only; no host operation |
+| `scripts/Invoke-GhidraDecompile31.ps1`, `scripts/inspect-host-functions31.py` | Fixed-RVA static listings under `artifacts/research/session-31/ghidra` and bounded x64 call-site inspection | Optional 0..16-instruction caller context verified on fixed track factories; existing evidence is preserved |
+| `docs/native-host-contracts-32.md`, `artifacts/ipc/native32-*.jsonl` | Historical session-32 investigation | Failed prototype and original readiness observations preserved; current results are in the session-33 contract |
+| `docs/song-tools-30.md`, `docs/feature-coverage-30.md` | Historical song-tool and coverage baseline | Current native file/event/note additions are in docs/native-file-services-31.md and STATUS.md |
 
 ## Update Log
 
 | Date | Change |
 | --- | --- |
+| 2026-11-10 | Session 34: repair Group/FX factory-token persistence; add instrument/folder and send routing; built-in startup recovery and independent holder; final fresh-reopen acceptance and 199 tests passed. |
+| 2026-11-10 | Session 33: 53 tools and 195 tests; native unload, routing and automation readback; Group/FX persistence failure, explicit-connection correction awaiting validation, and matching destroyed-track crash dumps documented. |
+| 2026-11-10 | Session 32: investigate and withdraw incomplete empty-MIDI creation; preserve negative routing/track receipts and license-readiness blocker; retain 47 tools; caller/window diagnostics and four final exposure checks passed. |
 | 2026-11-10 | Delivered strict-background implementation, 16 tools/31 controls, 35 passing tests and user-script deployment; live MIDI connection remains blocked by absent ports. |
 | 2026-11-10 | Installed virtual MIDI prerequisites, isolated the real AI16.0.5 test host, fixed native callback/snapshot/value contracts; 40 tests and four live checks passed. |
 | 2026-11-10 | Expanded controls and host queries to 23 tools; added track identity, feedback invalidation and bridge-version guards; 52 tests passed, installed controller awaits host reload. |
@@ -157,3 +187,6 @@
 | 2026-11-10 | Restored the mapping in fresh isolated lifetimes, added guarded insert-viewer writes and fixed Save submission, and observed one unconfirmed Save on a disposable fixture. |
 | 2026-11-10 | Session 28: prepared minimal-page Save, real MCP 146.75 edit/file-write/fresh-reopen persistence, 25th Save-observation tool, saved-page startup fix and 12 task C files archived to E. |
 | 2026-11-10 | Session 29: 30-tool formal owned lifecycle, real blank create/path binding/save-as/open, readiness gate, prototype archive and an explicit remaining-feature matrix. |
+| 2026-11-10 | Session 30: binding failure traced to callback cost and fixed in 3.14; 43 tools with MIDI import/read, channel, track, transport and audio export tools; every allowlisted command executed live; 28-check song acceptance through real MCP; 191/191 passed. |
+| 2026-11-10 | Session 31 in progress: investigate and implement explicit native file/editing operations; isolate new static evidence and preserve the session-30 working tree. |
+| 2026-11-10 | Session 31: 47 tools, 193/193 tests; NonUI export, audio import, audio move/trim and single-note edits observed; nonzero-part time context fixed; save/fresh reopen confirmed. Track factories, unload and other data contracts remain open. |

@@ -411,3 +411,72 @@ test('ports lists exact names without opening and default loading uses only the 
     });
     released(failed.state);
 });
+
+// ---- session 30: a lost response is read again by request ID, the operation is never resent ----
+
+async function untilRequest(state, count) {
+    for (let waited = 0; state.requests.length < count; waited += 25) {
+        assert.ok(waited < 3000, 'the client did not send the expected request');
+        await new Promise(resolve => setTimeout(resolve, 25));
+    }
+}
+
+test('a lost response is recovered through the stored response of the bridge without resending the operation', async () => {
+    const { state, driver } = native();
+    const client = new MidiClient({ ...options, timeoutMs: 4000 }, driver);
+    const pending = client.request('parameters.set', { session: 'instance-7', value: 1 });
+    // The bridge executed the request, but its response frames never arrive.
+    await untilRequest(state, 2);
+    const [operation, lookup] = state.requests;
+    assert.equal(operation.op, 'parameters.set');
+    assert.deepEqual([lookup.op, lookup.args], ['bridge.response', { requestId: operation.id, session: 'instance-7' }]);
+    reply(state, 1, { ok: true, data: { state: 'completed', sameInstance: true,
+        response: { v: 1, id: operation.id, ok: true, data: { execution: 'submitted', requestId: operation.id } } } });
+    assert.deepEqual(await pending, { execution: 'submitted', requestId: operation.id });
+    assert.deepEqual(state.requests.map(request => request.op), ['parameters.set', 'bridge.response']);
+    // The client is still usable.
+    const next = client.request('read');
+    reply(state, 2, { ok: true, data: 'fine' });
+    assert.equal(await next, 'fine');
+    client.close();
+    released(state);
+});
+
+test('a stored error response keeps its code and execution receipt', async () => {
+    const { state, driver } = native();
+    const client = new MidiClient({ ...options, timeoutMs: 4000 }, driver);
+    const pending = client.request('commands.execute', { session: 'instance-7' });
+    await untilRequest(state, 2);
+    reply(state, 1, { ok: true, data: { state: 'completed', sameInstance: true,
+        response: { v: 1, id: state.requests[0].id, ok: false, error: { code: 'COMMAND_UNAVAILABLE', message: 'Not now', execution: 'not_started' } } } });
+    await assert.rejects(pending, { code: 'COMMAND_UNAVAILABLE', execution: 'not_started' });
+    client.close();
+    released(state);
+});
+
+test('a request the same bridge instance never admitted is settled as not started', async () => {
+    const { state, driver } = native();
+    const client = new MidiClient({ ...options, timeoutMs: 4000 }, driver);
+    const pending = client.request('parameters.set', { session: 'instance-7' });
+    await untilRequest(state, 2);
+    reply(state, 1, { ok: true, data: { state: 'unknown', sameInstance: true } });
+    await assert.rejects(pending, { code: 'REQUEST_NOT_ADMITTED', execution: 'not_started' });
+    const next = client.request('read');
+    reply(state, 2, { ok: true, data: 'fine' });
+    assert.equal(await next, 'fine');
+    client.close();
+    released(state);
+});
+
+test('an inconclusive look-up leaves the outcome unknown and the request times out as before', async () => {
+    const { state, driver } = native();
+    const client = new MidiClient({ ...options, timeoutMs: 2200 }, driver);
+    const pending = client.request('parameters.set', { session: 'instance-7' });
+    await untilRequest(state, 2);
+    // Another script instance cannot vouch for this request ID.
+    reply(state, 1, { ok: true, data: { state: 'unknown', sameInstance: false } });
+    await assert.rejects(pending, { code: 'MIDI_TIMEOUT', execution: 'unknown' });
+    assert.equal(state.requests.filter(request => request.op === 'parameters.set').length, 1);
+    await assert.rejects(client.request('again'), { code: 'MIDI_FAULTED', execution: 'not_started' });
+    released(state);
+});

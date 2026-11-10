@@ -31,3 +31,8 @@
 | [27](session-27.md) | 2026-11-10 | Re-establish isolated mapping, add guarded insert writes and a fixed Save submission, and observe one unconfirmed Save. |
 | [28](session-28.md) | 2026-11-10 | Real MCP tempo edit/Save/fresh-reopen persistence, Save-observation tool, saved-page startup fix and scoped C cleanup. |
 | [29](session-29.md) | 2026-11-10 | Formal owned native create/open/save-as/stop, path binding, mapping readiness and remaining-feature matrix. |
+| [30](session-30.md) | 2026-11-10 | Binding failure root cause and fix, MIDI import/read, channel/track/transport tools, background audio export, per-command live results and a 28-check song acceptance. |
+| [31](session-31.md) | 2026-11-10 | 47 tools; native audio import/export, audio and single-note edits, nonzero-part time fix, fresh-reopen evidence and 193 tests; remaining native contracts explicit. |
+| [32](session-32.md) | 2026-11-10 | Incomplete empty-MIDI prototype withdrawn; negative routing probe, bounded diagnostics and license-readiness blocker; 47 tools retained, four host contracts remain incomplete. |
+| [33](session-33.md) | 2026-11-10 | 53 tools and 195 tests; native unload/routing/automation readback; Group/FX persistence failure and matching destroyed-track crash dumps, with final host verification still pending. |
+| [34](session-34.md) | 2026-11-10 | Repaired Group/FX factory-token binding; real instrument/folder and send routing; MCP-owned startup recovery; final fresh-reopen acceptance and 199 tests passed. |

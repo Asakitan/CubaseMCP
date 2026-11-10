@@ -6,9 +6,17 @@
 #include <cstring>
 #include <cwchar>
 #include <vector>
+#include <string>
+#include <sstream>
+#include <locale>
+#include <iomanip>
+#include <cmath>
+#include <stdexcept>
 
-// Fixed-build primary create/open/save-as operations for an owned Cubase process.
+// Fixed-build primary lifecycle/import/export operations for an owned Cubase process.
 // No instruction patches, license changes, foreground calls or input synthesis.
+// Operations: 1 create, 2 open, 3 save-as, 4 merge MIDI, 5 NonUI audio export,
+// 6 audio import, 7 event/note read, 8 one guarded event/note field edit.
 namespace {
 struct Identity {
     uint32_t version, targetPid;
@@ -57,10 +65,14 @@ bool readExact(const wchar_t* name, void* output, DWORD length) {
 }
 
 struct Result {
-    DWORD thread = 0, eventThread = 0, exception = 0, error = 0, checkpoint = 0, pathStage = 0;
+    DWORD thread = 0, eventThread = 0, exception = 0, error = 0, checkpoint = 0, pathStage = 0, importStage = 0, openError = 0;
     bool operationStarted = false, operationReturned = false, saveStarted = false, saveReturned = false, succeeded = false;
-    unsigned char saveValue = 0;
-    uintptr_t document = 0, root = 0;
+    bool importStarted = false, importReturned = false;
+    DWORD exportStage = 0, exportValidation = 0;
+    bool exportStarted = false, exportReturned = false;
+    DWORD audioClips = 0;
+    unsigned char saveValue = 0, importValue = 0;
+    uintptr_t document = 0, root = 0, nativeController = 0;
 } result;
 
 bool report(const wchar_t* leaf, const char* stage) {
@@ -68,14 +80,20 @@ bool report(const wchar_t* leaf, const char* stage) {
     if (!sibling(leaf, path, MAX_PATH) || swprintf_s(temporary, L"%s.tmp", path) < 0) return false;
     HANDLE file = CreateFileW(temporary, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) return false;
-    char text[900]{};
+    char text[1600]{};
     const int n = sprintf_s(text,
         "{\"stage\":\"%s\",\"operation\":%u,\"succeeded\":%s,\"pid\":%lu,\"thread\":%lu,\"eventThread\":%lu,\"exception\":%lu,\"error\":%lu,"
         "\"checkpoint\":%lu,\"pathStage\":%lu,\"operationStarted\":%s,\"operationReturned\":%s,\"saveStarted\":%s,\"saveReturned\":%s,\"saveValue\":%u,"
+        "\"importStage\":%lu,\"openError\":%lu,\"importStarted\":%s,\"importReturned\":%s,\"importValue\":%u,"
+        "\"exportStage\":%lu,\"exportValidation\":%lu,\"exportStarted\":%s,\"exportReturned\":%s,"
+        "\"audioClips\":%lu,\"nativeController\":\"0x%llx\","
         "\"document\":\"0x%llx\",\"root\":\"0x%llx\"}\n",
         stage, request.operation, result.succeeded ? "true" : "false", GetCurrentProcessId(), result.thread, result.eventThread, result.exception, result.error, result.checkpoint, result.pathStage,
         result.operationStarted ? "true" : "false", result.operationReturned ? "true" : "false",
         result.saveStarted ? "true" : "false", result.saveReturned ? "true" : "false", result.saveValue,
+        result.importStage, result.openError, result.importStarted ? "true" : "false", result.importReturned ? "true" : "false", result.importValue,
+        result.exportStage, result.exportValidation, result.exportStarted ? "true" : "false", result.exportReturned ? "true" : "false",
+        result.audioClips, static_cast<unsigned long long>(result.nativeController),
         static_cast<unsigned long long>(result.document), static_cast<unsigned long long>(result.root));
     DWORD written = 0;
     const bool ok = n > 0 && WriteFile(file, text, static_cast<DWORD>(n), &written, nullptr) &&
@@ -86,7 +104,7 @@ bool report(const wchar_t* leaf, const char* stage) {
 
 bool profile(uintptr_t base) {
     FILETIME c{}, e{}, k{}, u{};
-    if (request.version != 3 || request.operation < 1 || request.operation > 3 || request.targetPid != GetCurrentProcessId() ||
+    if (request.version != 3 || request.operation < 1 || request.operation > 12 || request.targetPid != GetCurrentProcessId() ||
         !GetProcessTimes(GetCurrentProcess(), &c, &e, &k, &u) ||
         ((static_cast<uint64_t>(c.dwHighDateTime) << 32) | c.dwLowDateTime) != request.targetCreation ||
         now() >= request.deadline || !request.nonce) return false;
@@ -153,17 +171,91 @@ bool documentPathMatches(void* document, const wchar_t* expected) {
     return path && readable(path, 0xe8) && pathFieldMatches(path, 0xc8, prefix, &wide, &length) && pathFieldMatches(path, 0x18, name, &wide, &length);
 }
 
+// Merge one Standard MIDI File into the active project. This repeats, call for call, what the
+// application's own File > Import > MIDI File handler (image RVA 0x1d3aa00) does after its file
+// selection when the user keeps the current project: open the file through the host file system,
+// let a fresh MMidiFilter import it into the active root, close the stream and refresh the document.
+// The import follows the user's MIDI import preferences (destination, tempo-track handling).
+bool importMidiFile(uintptr_t base, void* file, void* document) {
+    using Method = void (__fastcall*)(void*);
+    auto fileSystemGlobal = reinterpret_cast<uintptr_t*>(base + 0x5530450);
+    if (!readable(fileSystemGlobal, 8) || *fileSystemGlobal != base + 0x59a01b0) return false;
+    void* fileSystem = reinterpret_cast<void*>(*fileSystemGlobal);
+    if (!readable(fileSystem, 8)) return false;
+    auto fileSystemMethods = *reinterpret_cast<uintptr_t**>(fileSystem);
+    if (reinterpret_cast<uintptr_t>(fileSystemMethods) != base + 0x48313f0 || fileSystemMethods[0xd0 / 8] != base + 0x3b0abe0 ||
+        fileSystemMethods[0xd8 / 8] != base + 0x3b04e30) return false;
+    auto documentMethods = *reinterpret_cast<uintptr_t**>(document);
+    if (documentMethods[0x110 / 8] != base + 0x1cf7d20 || !result.root) return false;
+    result.importStage = 1;
+    using OpenStream = void* (__fastcall*)(void*, void*, uint64_t, uint32_t*);
+    using CloseStream = uint64_t (__fastcall*)(void*, void*);
+    uint32_t openError = 0;
+    void* stream = reinterpret_cast<OpenStream>(fileSystemMethods[0xd0 / 8])(fileSystem, file, 1, &openError);
+    result.openError = openError;
+    if (!stream || !readable(stream, 0xe0)) return false;
+    result.importStage = 2;
+    using Allocate = void* (__fastcall*)(size_t);
+    using Construct = void* (__fastcall*)(void*);
+    void* filter = reinterpret_cast<Allocate>(base + 0x3b9b244)(0x38);
+    bool imported = false;
+    if (filter && readable(filter, 0x38)) {
+        reinterpret_cast<Construct>(base + 0x2291190)(filter);
+        auto filterMethods = *reinterpret_cast<uintptr_t**>(filter);
+        if (reinterpret_cast<uintptr_t>(filterMethods) == base + 0x43e21f8 && filterMethods[0xd0 / 8] == base + 0x2291840 &&
+            filterMethods[0x10 / 8] == base + 0x15c31c0) {
+            result.importStage = 3;
+            // Bit 0: merge into the existing project instead of creating a new one.
+            *reinterpret_cast<uint16_t*>(static_cast<unsigned char*>(filter) + 0x18) |= 1;
+            using Buffer = void* (__fastcall*)(void*, uint32_t);
+            void* buffered = reinterpret_cast<Buffer>(base + 0x3b39390)(stream, 0x10000);
+            const bool usable = buffered && readable(buffered, 0x110) &&
+                *reinterpret_cast<int32_t*>(static_cast<unsigned char*>(buffered) + 0xd0) != 0 &&
+                (*(static_cast<unsigned char*>(buffered) + 0x10c) & 4) == 0;
+            using Import = uint64_t (__fastcall*)(void*, void*, void*);
+            result.importStage = 4;
+            result.importStarted = true;
+            const uint64_t value = reinterpret_cast<Import>(filterMethods[0xd0 / 8])(filter, reinterpret_cast<void*>(result.root), usable ? buffered : stream);
+            result.importReturned = true;
+            result.importValue = static_cast<unsigned char>(value & 0xff);
+            imported = result.importValue != 0;
+            result.importStage = 5;
+            if (buffered && readable(buffered, 8)) {
+                auto bufferedMethods = *reinterpret_cast<uintptr_t**>(buffered);
+                if (usable) reinterpret_cast<Method>(bufferedMethods[0xd0 / 8])(buffered);
+                reinterpret_cast<Method>(bufferedMethods[0x10 / 8])(buffered);
+            }
+            result.importStage = 6;
+            reinterpret_cast<CloseStream>(fileSystemMethods[0xd8 / 8])(fileSystem, stream);
+            stream = nullptr;
+            reinterpret_cast<uint64_t (__fastcall*)(void*)>(documentMethods[0x110 / 8])(document);
+            result.importStage = 7;
+            reinterpret_cast<Method>(filterMethods[0x10 / 8])(filter);
+        }
+        // An unexpected filter layout is left untouched rather than released through a guessed slot.
+    }
+    if (stream) reinterpret_cast<CloseStream>(fileSystemMethods[0xd8 / 8])(fileSystem, stream);
+    return imported;
+}
+
+#include "NativeAudioExport.h"
+#include "NativeAudioImport.h"
+#include "NativeProjectModel.h"
+#include "NativePluginServices.h"
+#include "NativeRouting.h"
+#include "NativeAutomation.h"
+
 void createOnEventThread() {
     result.thread = GetCurrentThreadId();
     const uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
     __try {
         result.checkpoint = 1; DWORD event = 0;
         if (!profile(base) || !holderJobVerified() || !backgroundInputDesktop() ||
-            (request.operation != 3 && !firstProjectState(base)) || !eventThread(base, &event) || event != result.thread || event != result.eventThread) return;
+            (request.operation < 3 && !firstProjectState(base)) || !eventThread(base, &event) || event != result.thread || event != result.eventThread) return;
         result.checkpoint = 2;
         const DWORD attributes = GetFileAttributesW(directory), fileAttributes = GetFileAttributesW(destination);
         if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) return;
-        if (request.operation == 2) {
+        if (request.operation == 2 || request.operation == 4 || request.operation >= 6) {
             if (fileAttributes == INVALID_FILE_ATTRIBUTES || (fileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT))) return;
         } else if (fileAttributes != INVALID_FILE_ATTRIBUTES || GetLastError() != ERROR_FILE_NOT_FOUND) return;
         result.checkpoint = 3;
@@ -180,13 +272,43 @@ void createOnEventThread() {
         void* file = makePath(base, destination, directory, fileName);
         if (!file || now() >= request.deadline) return;
         void* document = nullptr;
-        if (request.operation == 3) {
+        if (request.operation >= 3) {
             document = currentDocument(base, application, methods);
             if (!document || request.expectedPath[511] != 0 || !documentPathMatches(document, request.expectedPath)) return;
         }
         result.checkpoint = 6;
         if (!report(L"operation-start.json", "event_thread_admitted")) return;
         result.operationStarted = true;
+        if (request.operation >= 7 && request.operation <= 12) {
+            const bool observed = request.operation == 7 ? snapshotProjectModel(base) :
+            request.operation == 8 ? editProjectEvent(base, document) :
+            request.operation == 9 ? createMixerTrack(base, document) :
+                request.operation == 10 ? unloadProjectPlugin(base, document) :
+                request.operation == 11 ? projectRouting(base, document) : projectAutomation(base, document);
+            if (request.operation == 7) result.operationReturned = true;
+            if (!observed || currentDocument(base, application, methods) != document || !documentPathMatches(document, request.expectedPath)) return;
+            result.checkpoint = 9; result.succeeded = true;
+            return;
+        }
+        if (request.operation == 5) {
+            const bool exported = exportAudioFile(base, file);
+            result.operationStarted = result.exportStarted;
+            result.operationReturned = result.exportReturned;
+            result.checkpoint = 7;
+            void* after = currentDocument(base, application, methods);
+            if (!exported || after != document || !documentPathMatches(document, request.expectedPath)) return;
+            result.checkpoint = 9; result.succeeded = true;
+            return;
+        }
+        if (request.operation == 4 || request.operation == 6) {
+            const bool imported = request.operation == 4 ? importMidiFile(base, file, document) : importAudioFile(base, file, document);
+            if (request.operation == 6) result.operationStarted = result.importStarted;
+            result.operationReturned = result.importReturned; result.checkpoint = 7;
+            void* after = currentDocument(base, application, methods);
+            if (!imported || after != document || !documentPathMatches(document, request.expectedPath)) return;
+            result.checkpoint = 9; result.succeeded = true;
+            return;
+        }
         if (request.operation == 1) {
             using Create = void* (__fastcall*)(void*, void*, unsigned char, unsigned char);
             document = reinterpret_cast<Create>(base + 0x1d50920)(application, folder, 1, 0);
@@ -256,7 +378,7 @@ bool preparePaths() {
 DWORD WINAPI worker(void*) {
     if (!readExact(L"request.bin", &request, sizeof(request)) || !preparePaths()) { report(L"create-result.json", "request_invalid"); return 1; }
     const uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
-    if (!profile(base) || !eventThread(base, &result.eventThread) || (request.operation != 3 && !firstProjectState(base)) ||
+    if (!profile(base) || !eventThread(base, &result.eventThread) || (request.operation < 3 && !firstProjectState(base)) ||
         !holderJobVerified() || !backgroundInputDesktop()) {
         report(L"create-result.json", "preflight_failed"); return 1;
     }
