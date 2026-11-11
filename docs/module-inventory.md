@@ -3,7 +3,10 @@
 | Source | Runtime target | Status |
 | --- | --- | --- |
 | `src/config.ts` | `dist/src/config.js` | Literal policy parser verified |
-| `src/server.ts` | `dist/src/server.js` | 53 tools; 201 tests; bounded read-only capability discovery with explicit `hostState`; native track/instrument/folder/send/automation fresh-reopen acceptance retained |
+| `src/server.ts` | `dist/src/server.js` | 53 tools; 226 tests; bounded read-only capability discovery with explicit `hostState`; starts the hourly temporary-output cleanup; native track/instrument/folder/send/automation fresh-reopen acceptance retained |
+| `src/cleanup.ts` | `dist/src/cleanup.js` | Removes temporary output older than 1 h under `artifacts`: request records, `scratch-temp` entries and atomic-write backups; keep manifest, reparse/containment guards, background schedule 30 s after connect then hourly; 8 tests passed |
+| `src/cleanup-cli.ts` | `dist/src/cleanup-cli.js` | `npm run cleanup:temp` JSON summary; `--dry-run`, `--verbose`, `--root`, retention and `--keep-recent`; same code as the background pass |
+| `tests/cleanup.test.cjs` | Node test suite | Stale/sub-hour records, nested newer evidence, scratch and atomic leftovers, dry run, keep manifest, idempotence, explicit newest-N window, scheduler and config defaults |
 | `src/bridge-contract.ts` | `dist/src/bridge-contract.js` | Shared host/revision/active-session gate; operational readiness is explicit |
 | `src/doctor.ts` | `dist/src/doctor.js` | Reports operational readiness separately from handshake availability |
 | `src/midi.ts` | `dist/src/midi.js` | Exact ports, deadlines, fault latch, prepared Save input/release/return, lost-response recovery by request ID, and read-only `not_started` misses that reopen an idle channel without resending; tests passed |
@@ -151,12 +154,13 @@
 | `scripts/Invoke-GhidraDecompile31.ps1`, `scripts/inspect-host-functions31.py` | Fixed-RVA static listings under `artifacts/research/session-31/ghidra` and bounded x64 call-site inspection | Optional 0..16-instruction caller context verified on fixed track factories; existing evidence is preserved |
 | `docs/native-host-contracts-32.md`, `artifacts/ipc/native32-*.jsonl` | Historical session-32 investigation | Failed prototype and original readiness observations preserved; current results are in the session-33 contract |
 | `docs/song-tools-30.md`, `docs/feature-coverage-30.md` | Historical song-tool and coverage baseline | Current native file/event/note additions are in docs/native-file-services-31.md and STATUS.md |
-| `README.md`, `CHANGELOG.md`, `docs/local-environment.md` | Repository documentation surface | README is usage/constraints only; CHANGELOG holds rounds 28-41 and controller revisions; machine-local install, deployment and client registration records live in `docs/local-environment.md` |
+| `README.md`, `CHANGELOG.md`, `docs/local-environment.md` | Repository documentation surface | README is usage/constraints only; CHANGELOG holds rounds 28-43 and controller revisions; machine-local install, deployment and client registration records live in `docs/local-environment.md` |
 
 ## Update Log
 
 | Date | Change |
 | --- | --- |
+| 2026-11-11 | Session 43: add automatic cleanup of temporary output older than 1 h (lifecycle request records, `scratch-temp`, atomic-write backups) with a keep manifest, config windows and `npm run cleanup:temp`; 226 tests, real pass removed 550 entries / 179 MB. |
 | 2026-11-11 | Session 41: move machine-local facts out of README into `docs/local-environment.md` and round/revision history into `CHANGELOG.md`; README rewritten as a usage document; no code or controller change. |
 | 2026-11-10 | Session 35: register the built MCP server with Claude Code, Codex, VS Code/Insiders and Copilot; native client queries and read-only 53-tool handshake passed; existing chat refresh remains unverified. |
 | 2026-11-10 | Session 34: repair Group/FX factory-token persistence; add instrument/folder and send routing; built-in startup recovery and independent holder; final fresh-reopen acceptance and 199 tests passed. |

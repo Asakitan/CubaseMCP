@@ -4,6 +4,11 @@
 
 ## [0.1.0] - 2026-11-11
 
+### 第 43 轮：临时输出自动清理
+
+- 服务连上 stdio 后 30 秒在后台清理一次，此后每小时一次：`artifacts/project-create-<32 位十六进制>` 里超过 1 小时的生命周期请求记录、`artifacts/scratch-temp` 下超过 1 小时的子进程临时文件、`artifacts/runtime` 下超过 1 小时的 `*.before-<id>` 和 `*.tmp-<id>` 原子写入备份。超过一小时的都按临时文件处理；只有 `artifacts/temp-cleanup-keep.txt` 列出的目录例外。不跟随 reparse point，不碰 `managed-projects`、`ipc` 和当前启动回执。
+- `cubase.config.json` 新增可选 `cleanup` 设置（默认启用、1 / 1 小时）；`npm run cleanup:temp -- --dry-run` 可手动预演并输出 JSON 汇总，加 `--verbose` 列出每条命中。新增 `tests/cleanup.test.cjs`，完整测试 **226/226**；本机按 1 小时实跑删除 550 项、释放 179,045,321 字节，没有失败，余下 20 个请求记录（含两个被文档引用的保留项）。见 [session 43](docs/session-log/session-43.md)。
+
 ### 第 42 轮：采样率导入实机验证与 32 条音频轨上限
 
 - 采样率导入的三个分支在真实 Cubase 里跑过：`match`（15 个已转换的层，原样复制）、`reject`（`AUDIO_SAMPLE_RATE_MISMATCH`，`execution: not_started`，没有写文件）、`convert`（147/160，每相 140 抽头，32 位浮点 44.1 kHz 副本，导出与源的包络相关 1.0000、滞后 0、电平比 1.000；错速假设只有 0.0093）。

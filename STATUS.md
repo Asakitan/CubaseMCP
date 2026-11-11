@@ -4,7 +4,13 @@ Version: 0.1.0. The built server exposes **53 tools**. Session 34 fixed the Grou
 
 Repository: <https://github.com/Asakitan/CubaseMCP> (public, `main`).
 
-## Current increment: session 42
+## Current increment: session 43
+
+- Temporary output older than one hour is cleaned automatically. Thirty seconds after the stdio transport connects, and hourly after that, the server removes lifecycle request records under `artifacts/project-create-<32 hex>`, entries in `artifacts/scratch-temp`, and `*.before-<id>` / `*.tmp-<id>` atomic-write backups in `artifacts/runtime`. Only names in `artifacts/temp-cleanup-keep.txt` are exempt; reparse points and anything outside `artifacts` are refused, and `managed-projects`, `ipc` and the current launch receipt are never candidates.
+- Settings are optional in `cubase.config.json` under `cleanup` (`enabled`, `retentionHours`, `scratchRetentionHours`; defaults true / 1 / 1). `npm run cleanup:temp -- [--dry-run]` runs the same code on demand with a JSON summary. On this machine the one-hour pass removed 550 entries and freed 179,045,321 bytes with no failure; only 20 request records remained, including both cited by documents.
+- New `tests/cleanup.test.cjs`; **226/226 tests**. See [session 43](docs/session-log/session-43.md).
+
+## Earlier increment: session 42
 
 - The session-38 sample-rate import now has a live Cubase run for all three branches (`match`, `reject`, `convert`; export of a converted layer correlates 1.0000 at lag 0 with its source, level ratio 1.000), so the "no live import yet" remark under session 38 is closed. Limits that remain by design are listed in [session 42](docs/session-log/session-42.md): rate read from the saved CPR (first `PArrangeSetup` record), separate read passes over the source, extensible-format channel mask ignored, no 8-bit PCM, no AIFF/FLAC conversion.
 - **Cubase AI 16 holds 32 audio tracks.** A 33rd `cubase_audio_import` returns success and writes the converted file but adds no channel. When no channel appears, the window state is clean and the project already had 32 audio channels, the tool returns `AUDIO_TRACK_LIMIT_SUSPECTED` (with `details.audioChannelsBefore`) instead of the generic `AUDIO_IMPORT_NOT_OBSERVED`. New fixture test; **218/218 tests** in that round. The code is committed; a server started before the rebuild needs a restart before it reports the new code.

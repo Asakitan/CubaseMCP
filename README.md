@@ -39,6 +39,8 @@ npm run doctor -- --live
 
 `setup:midi` 需要管理员权限，只通过 WinGet 安装官方 loopMIDI 包，已经装过就不重复装喵。`start:ports` 用已安装的 virtualMIDI 库，在无窗口进程里提供两个回环端口喵。它没有注册开机或登录自启动，结束进程或重新登录后要重新运行喵；`stop:ports` 可以明确停掉端口宿主喵。
 
+`npm run cleanup:temp` 清理 `artifacts` 里超过 1 小时的临时输出，`--dry-run` 只预览并给出 JSON 汇总喵。MCP 服务连上 stdio 后 30 秒在后台执行一次、之后每小时一次：生命周期请求记录、`scratch-temp` 和原子写入备份都按 1 小时算，只有 `artifacts/temp-cleanup-keep.txt` 列出的目录保留喵。时长和开关写在 `cubase.config.json` 的 `cleanup` 里喵。
+
 生命周期启动端口宿主后，会等本次 PID 的就绪记录和精确端口枚举，最长 15 秒喵。宿主由独立进程创建，不继承生命周期响应管道喵。`install:remote` 只复制四个 MIDI Remote 文件，默认不覆盖不同内容喵。Cubase 正常使用时需要加载这个驱动，别把两个控制端口加进 MIDI 轨道的输入或 MIDI Thru 回路喵。MCP 服务不会自动安装驱动；显式生命周期请求会在私有桌面启动自有 Cubase 和需要的端口宿主喵。
 
 `cubase_project_create` / `cubase_project_open` 已经内置独立启动，不需要手动跑外部启动脚本喵。原生工程操作还没提交、启动又停在“检查许可证”时，MCP 会结束受管 Cubase 和同会话的确切许可辅助进程，然后自动重启一次，结果里带 `startupRecovery` 喵。它不会结束主人另开的 Cubase，不改授权文件，不回答提示框，也不重放已提交的编辑喵。

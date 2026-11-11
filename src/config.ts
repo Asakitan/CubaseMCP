@@ -19,7 +19,14 @@ export const configSchema = z.object({
         input: z.string().min(1),
         output: z.string().min(1),
         timeoutMs: z.number().int().min(500).max(60000)
-    }).strict()
+    }).strict(),
+    // Background removal of stale artifacts output. The defaults bound the working tree without
+    // touching the newest request records or the evidence folders.
+    cleanup: z.object({
+        enabled: z.boolean().default(true),
+        retentionHours: z.number().min(1).max(720).default(1),
+        scratchRetentionHours: z.number().min(1).max(720).default(1)
+    }).strict().default({ enabled: true, retentionHours: 1, scratchRetentionHours: 1 })
 }).strict().refine(value => value.midi.input !== value.midi.output, {
     message: 'The two directional MIDI ports must have different names.'
 });

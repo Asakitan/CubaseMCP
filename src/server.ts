@@ -16,6 +16,7 @@ import { awaitWrittenMidiFile, describeMidi, listMidiFiles, songToSmf, type Song
 import { inspectAudio } from './audio-info.js';
 import { readProjectSampleRate } from './project-rate.js';
 import { resampleWavFile } from './resample.js';
+import { startTempCleanup } from './cleanup.js';
 
 export const constraints = {
     backend: 'midi',
@@ -1016,11 +1017,14 @@ export function createServer(config: Configuration = loadConfig()) {
 }
 
 async function main() {
-    const runtime = createServer();
+    const config = loadConfig();
+    const runtime = createServer(config);
     const stop = () => { runtime.close(); void runtime.server.close(); };
     process.once('SIGINT', stop);
     process.once('SIGTERM', stop);
     await runtime.server.connect(new StdioServerTransport());
+    // Temporary output is removed in the background after the transport is up; failures stay off the protocol stream.
+    startTempCleanup(config.cleanup);
 }
 
 if (require.main === module) {

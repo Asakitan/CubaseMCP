@@ -48,6 +48,7 @@ codex mcp get cubase-ai16-headless --json
 
 - session 28 把 12 个确认属于本任务的 C 盘会话临时及崩溃文件（3,937,635 字节）归档到 E 盘并移除 C 盘副本；其他软件正在使用的临时文件和已安装依赖保留。
 - 后续任务辅助进程、编译和自有 Cubase 启动的 `TEMP`/`TMP` 指向 `E:\VC\CubaseMCP\artifacts\scratch-temp`，只影响这些进程，不改系统或用户全局设置。
+- 超过 1 小时的 `artifacts/project-create-<32 位十六进制>` 请求记录、`scratch-temp` 条目和 `artifacts/runtime` 原子写入备份由 MCP 服务在连接后 30 秒、之后每小时后台清理；`npm run cleanup:temp` 可手动执行。`artifacts/temp-cleanup-keep.txt` 列出被文档引用的两个请求记录（session 37 与 `native-host-contracts-33.md`），清理不会删除它们。2026-11-11 按 1 小时实跑删除 550 项、释放 179,045,321 字节。
 
 ## 本机验收副本
 

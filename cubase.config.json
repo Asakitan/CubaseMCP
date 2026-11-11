@@ -15,5 +15,10 @@
     "input": "CubaseAI MCP From Cubase",
     "output": "CubaseAI MCP To Cubase",
     "timeoutMs": 8000
+  },
+  "cleanup": {
+    "enabled": true,
+    "retentionHours": 1,
+    "scratchRetentionHours": 1
   }
 }
