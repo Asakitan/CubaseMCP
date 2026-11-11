@@ -153,3 +153,7 @@ powershell.exe -NoProfile -File scripts/Inspect-ProjectFactory.ps1 -ProbeProject
 `cubase_midi_import` 使用同一初始化器的第四个固定操作，把一个标准 MIDI 文件按宿主自己的导入流程并入托管工程；它不选择文件、不弹窗、不改偏好。
 
 原生初始化器固定对应本机 16.0.5.174，文件路径长度上限 500 字符。调用会检查进程寿命、父进程、隔离作业、事件线程及文档路径；创建/打开后先观察映射激活，再发送一次 MIDI 握手。失败不会重发；原生结果和文件会保留。源代码和实机证据见 [详细契约](docs/background-project-lifecycle.md)。这不是所有 Cubase 功能已完成的声明。
+
+## 许可证
+
+本项目使用 [MIT License](LICENSE)，版权归 2026 Asakitan 所有。

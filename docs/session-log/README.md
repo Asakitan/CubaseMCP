@@ -41,3 +41,4 @@
 | [37](session-37.md) | 2026-11-11 | Diagnose and repair port-host readiness and inherited lifecycle pipe. |
 | [38](session-38.md) | 2026-11-11 | Audio import reads the project sample rate from the CPR and converts or refuses a mismatched source; 212 tests; findings from a full song production. |
 | [39](session-39.md) | 2026-11-11 | Publish the repository to GitHub and push `main`. |
+| [40](session-40.md) | 2026-11-11 | Add the MIT license file, package metadata and README section. |

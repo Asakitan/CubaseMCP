@@ -2,6 +2,7 @@
   "name": "cubase-ai16-mcp",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Strict background-only Cubase AI 16 MCP over a single MIDI Remote connection",
   "type": "commonjs",
   "engines": { "node": ">=22" },
