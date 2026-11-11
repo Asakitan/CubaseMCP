@@ -2,6 +2,8 @@
 
 Version: 0.1.0. The built server exposes **53 tools**. Session 34 fixed the Group/FX creation/persistence path and verified MIDI, instrument, folder, unload, automation points and audio output/send routing through real MCP and fresh reopen. License-startup recovery is built into MCP. **Full Cubase coverage remains incomplete.** Controller: `2026-11-10-coverage-3.14`.
 
+Repository: <https://github.com/Asakitan/CubaseMCP> (public, `main`).
+
 ## Current increment: session 38
 
 - `cubase_audio_import` no longer imports audio at the wrong speed. The project sample rate is read from the saved CPR (`PArrangeSetup` record) and compared with the source; `sampleRateMismatch` selects `convert` (default: a converted 32-bit float WAV copy is imported, WAV sources only), `reject` or `ignore`, and the result reports `sampleRate.check`.
