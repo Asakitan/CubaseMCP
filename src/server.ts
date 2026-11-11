@@ -73,6 +73,10 @@ function failure(error: unknown): CallToolResult {
 // must be reported as unobserved instead of burning the configured operation timeout.
 const CAPABILITY_HANDSHAKE_MS = 2000;
 
+// Cubase AI 16 holds at most 32 audio tracks. Observed on 2026-11-11 in a full production: the import of a 33rd file returned success and
+// wrote the converted copy, but no audio channel appeared (the mixer listing was unchanged and no window was open).
+const AUDIO_TRACK_LIMIT = 32;
+
 /** Owned-runtime inventory without any MIDI handshake; a lifecycle failure is reported, not thrown. */
 async function ownedRuntime(signal?: AbortSignal): Promise<Record<string, unknown>> {
     try {
@@ -755,8 +759,14 @@ export function createServer(config: Configuration = loadConfig()) {
         const audioChannels = added.filter(channel => channel.typeName === 'AudioChannel');
         const windows = await unexpectedWindows(project.name, signal);
         if (!audioChannels.length || !windows.observed || windows.unexpected.length) {
-            throw new BridgeError('AUDIO_IMPORT_NOT_OBSERVED', 'The native import returned, but the added audio channel and clean window state were not both observed.',
-                'submitted', { importedPath, native: outcome.native, added: added.map(brief), windows });
+            // Cubase AI holds 32 audio tracks (found in a production: the 33rd import returned success, importedPath was written, and no channel
+            // appeared). A clean window state with nothing added while the project is at that count says so instead of the generic code.
+            const audioBefore = before.filter(channel => channel.typeName === 'AudioChannel').length;
+            const atLimit = !audioChannels.length && windows.observed && !windows.unexpected.length && audioBefore >= AUDIO_TRACK_LIMIT;
+            throw new BridgeError(atLimit ? 'AUDIO_TRACK_LIMIT_SUSPECTED' : 'AUDIO_IMPORT_NOT_OBSERVED',
+                atLimit ? `The project already has ${audioBefore} audio channels and the import added none: Cubase AI allows ${AUDIO_TRACK_LIMIT} audio tracks. Remove (cubase_track_edit remove) or reuse a track and import again; the converted file ${importedPath} stays in the project Audio folder.`
+                    : 'The native import returned, but the added audio channel and clean window state were not both observed.',
+                'submitted', { importedPath, native: outcome.native, added: added.map(brief), audioChannelsBefore: audioBefore, windows });
         }
         let renamed: unknown;
         if (args.trackName !== undefined) {

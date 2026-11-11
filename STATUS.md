@@ -4,12 +4,17 @@ Version: 0.1.0. The built server exposes **53 tools**. Session 34 fixed the Grou
 
 Repository: <https://github.com/Asakitan/CubaseMCP> (public, `main`).
 
+## Current increment: session 42
+
+- The session-38 sample-rate import now has a live Cubase run for all three branches (`match`, `reject`, `convert`; export of a converted layer correlates 1.0000 at lag 0 with its source, level ratio 1.000), so the "no live import yet" remark under session 38 is closed. Limits that remain by design are listed in [session 42](docs/session-log/session-42.md): rate read from the saved CPR (first `PArrangeSetup` record), separate read passes over the source, extensible-format channel mask ignored, no 8-bit PCM, no AIFF/FLAC conversion.
+- **Cubase AI 16 holds 32 audio tracks.** A 33rd `cubase_audio_import` returns success and writes the converted file but adds no channel. When no channel appears, the window state is clean and the project already had 32 audio channels, the tool returns `AUDIO_TRACK_LIMIT_SUSPECTED` (with `details.audioChannelsBefore`) instead of the generic `AUDIO_IMPORT_NOT_OBSERVED`. New fixture test; **218/218 tests** in that round. The code is committed; a server started before the rebuild needs a restart before it reports the new code.
+
 ## Documentation increment: session 41
 
 - README is a usage document in the repository's assistant voice. Machine-local install paths, controller deployment, client registration and scratch-TEMP facts moved to `docs/local-environment.md`.
 - Round and controller-revision history moved to `CHANGELOG.md`; README keeps current behavior, commands and contracts only. No source, controller or tool change.
 
-## Current increment: session 38
+## Earlier increment: session 38
 
 - `cubase_audio_import` no longer imports audio at the wrong speed. The project sample rate is read from the saved CPR (`PArrangeSetup` record) and compared with the source; `sampleRateMismatch` selects `convert` (default: a converted 32-bit float WAV copy is imported, WAV sources only), `reject` or `ignore`, and the result reports `sampleRate.check`.
 - Found in a full production where every 48 kHz layer had run 8.1 % slow in a 44.1 kHz project for eight mix revisions. Fixture tests and a real 213 s layer (difference to an independent conversion -139.8 dB) pass; **212/212 tests**. The running server of that session still had the old build, so the new branch has no live Cubase import yet. See [session record](docs/session-log/session-38.md), which also lists how the tools behave in a real mix.

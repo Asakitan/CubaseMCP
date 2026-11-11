@@ -804,3 +804,33 @@ test('an unreadable project rate stops the import unless the caller chooses to i
         });
     } finally { project.remove(); }
 });
+
+test('an import that adds no channel while the project holds 32 audio channels reports the Cubase AI track limit', async () => {
+    const project = temporaryProject(), source = path.join(project.directory, 'Layer.wav'), seen = [];
+    fs.writeFileSync(source, smallWav(0.5));
+    writeProjectFile(project, 8000);
+    const channels = [channel(1, 'OutputChannel', 'Stereo Out'), ...Array.from({ length: 32 }, (_, k) => channel(10 + k, 'AudioChannel', 'Audio ' + k))];
+    try {
+        await withServer({
+            bridge(op) {
+                if (op === 'transport.state') return { playing: false, recording: false };
+                if (op === 'channels.list') return { nextOffset: null, items: channels };
+                throw new Error('unexpected ' + op);
+            },
+            lifecycle(action, args) {
+                if (action === 'status') return project.status;
+                assert.equal(action, 'import_audio');
+                seen.push(args.audioPath);
+                return { ok: true, native: { importReturned: true, audioClips: 1 } };      // the host says yes and adds nothing
+            }
+        }, async (call) => {
+            const reply = await call('cubase_audio_import', { session: 'song', audioPath: source, confirmImport: true });
+            assert.equal(reply.ok, false);
+            assert.equal(reply.error.code, 'AUDIO_TRACK_LIMIT_SUSPECTED');
+            assert.equal(reply.error.execution, 'submitted');
+            assert.equal(reply.error.details.audioChannelsBefore, 32);
+            assert.match(reply.error.message, /32 audio tracks/);
+            assert.equal(seen.length, 1);
+        });
+    } finally { project.remove(); }
+});

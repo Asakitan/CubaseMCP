@@ -41,4 +41,4 @@ Evidence in the production: an envelope correlation of the solo vocal export aga
 
 ## Remaining
 
-A live import through the new branch after the server is restarted; conversion of AIFF/FLAC sources; reading the rate of a project that was never saved.
+A live import through the new branch after the server is restarted (done in [session 42](session-42.md): match, reject and convert all ran against the real host); conversion of AIFF/FLAC sources; reading the rate of a project that was never saved.

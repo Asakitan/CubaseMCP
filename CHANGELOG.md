@@ -4,6 +4,11 @@
 
 ## [0.1.0] - 2026-11-11
 
+### 第 42 轮：采样率导入实机验证与 32 条音频轨上限
+
+- 采样率导入的三个分支在真实 Cubase 里跑过：`match`（15 个已转换的层，原样复制）、`reject`（`AUDIO_SAMPLE_RATE_MISMATCH`，`execution: not_started`，没有写文件）、`convert`（147/160，每相 140 抽头，32 位浮点 44.1 kHz 副本，导出与源的包络相关 1.0000、滞后 0、电平比 1.000；错速假设只有 0.0093）。
+- Cubase AI 16 最多 32 条音频轨：第 33 次导入返回成功、写出文件，却不添加通道。`cubase_audio_import` 在“没有新增通道、窗口状态干净、导入前音频通道数已达 32”时返回 `AUDIO_TRACK_LIMIT_SUSPECTED`（`details.audioChannelsBefore`），其余失败仍是 `AUDIO_IMPORT_NOT_OBSERVED`。新增一个夹具测试，完整测试 **218/218**；生产对话里运行的服务是改动前的构建，重启后才会出现新代码。见 [session 42](docs/session-log/session-42.md)。
+
 ### 第 41 轮：文档拆分
 
 - README 改成使用文档，本机安装、控制器部署、客户端注册和临时目录移到 [本机环境记录](docs/local-environment.md)，轮次与修订历史移到本文件。没有代码、控制器或工具变更。

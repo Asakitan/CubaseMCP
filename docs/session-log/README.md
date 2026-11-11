@@ -43,3 +43,4 @@
 | [39](session-39.md) | 2026-11-11 | Publish the repository to GitHub and push `main`. |
 | [40](session-40.md) | 2026-11-11 | Add the MIT license file, package metadata and README section. |
 | [41](session-41.md) | 2026-11-11 | Split README into usage, changelog and machine-local records; rewrite it in the assistant voice. |
+| [42](session-42.md) | 2026-11-11 | Live check of the sample-rate import (match / reject / convert, export correlation 1.0000); Cubase AI 32-audio-track limit reported as `AUDIO_TRACK_LIMIT_SUSPECTED`; 218 tests; limits left by the converter review. |
