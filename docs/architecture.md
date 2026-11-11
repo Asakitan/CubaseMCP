@@ -9,6 +9,8 @@ MCP client -> stdio SDK -> strict tool schema -> one MidiClient (parameter/contr
 
 The return path carries correlated replies. There is no adapter router, foreground process controller, network service, synthetic state provider or command replay queue in the Node server.
 
+The documentation surface is split by purpose: `README.md` carries usage, constraints and current behavior only; `CHANGELOG.md` carries round and controller-revision history; `docs/local-environment.md` carries machine-local install, deployment, registration and scratch-directory facts; `STATUS.md` and `docs/module-inventory.md` carry current state.
+
 Port-host startup starts independently without inherited response handles and waits for a matching PID readiness record followed by exact port enumeration, with a bounded wait. This applies before native project admission; it does not replay an operation.
 
 The explicit project lifecycle uses a separate fixed native initializer on the owned event thread, not a retry/fallback for MIDI controls. See `docs/background-project-lifecycle.md`.

@@ -151,11 +151,13 @@
 | `scripts/Invoke-GhidraDecompile31.ps1`, `scripts/inspect-host-functions31.py` | Fixed-RVA static listings under `artifacts/research/session-31/ghidra` and bounded x64 call-site inspection | Optional 0..16-instruction caller context verified on fixed track factories; existing evidence is preserved |
 | `docs/native-host-contracts-32.md`, `artifacts/ipc/native32-*.jsonl` | Historical session-32 investigation | Failed prototype and original readiness observations preserved; current results are in the session-33 contract |
 | `docs/song-tools-30.md`, `docs/feature-coverage-30.md` | Historical song-tool and coverage baseline | Current native file/event/note additions are in docs/native-file-services-31.md and STATUS.md |
+| `README.md`, `CHANGELOG.md`, `docs/local-environment.md` | Repository documentation surface | README is usage/constraints only; CHANGELOG holds rounds 28-41 and controller revisions; machine-local install, deployment and client registration records live in `docs/local-environment.md` |
 
 ## Update Log
 
 | Date | Change |
 | --- | --- |
+| 2026-11-11 | Session 41: move machine-local facts out of README into `docs/local-environment.md` and round/revision history into `CHANGELOG.md`; README rewritten as a usage document; no code or controller change. |
 | 2026-11-10 | Session 35: register the built MCP server with Claude Code, Codex, VS Code/Insiders and Copilot; native client queries and read-only 53-tool handshake passed; existing chat refresh remains unverified. |
 | 2026-11-10 | Session 34: repair Group/FX factory-token persistence; add instrument/folder and send routing; built-in startup recovery and independent holder; final fresh-reopen acceptance and 199 tests passed. |
 | 2026-11-10 | Session 33: 53 tools and 195 tests; native unload, routing and automation readback; Group/FX persistence failure, explicit-connection correction awaiting validation, and matching destroyed-track crash dumps documented. |
