@@ -33,13 +33,19 @@ npm run doctor -- --live
 
 `setup:midi` 需要管理员权限，只通过 WinGet 安装官方 loopMIDI 包；已安装时不重复安装。`start:ports` 使用已安装的 virtualMIDI 库，在无窗口进程中提供两个回环端口。没有注册开机或登录自启动，结束进程或重新登录后需重新运行。`stop:ports` 可明确停止端口宿主。
 
+生命周期启动端口宿主后，等待本次 PID 的就绪记录与精确端口枚举，最长等待 15 秒；宿主由独立进程创建，避免继承生命周期响应管道。创建流程的空工程启动器同时修复了多条 Node 路径被拼接的问题。修复后在端口已就绪情况下完成一次真实工程创建并保存；端口延迟就绪分支仍仅有独立假进程验证。
+
 `install:remote` 只复制四个 MIDI Remote 文件，默认不覆盖不同内容。Cubase 需要在正常使用时加载该驱动。不要把这两个控制端口加入 MIDI 轨道的输入或 MIDI Thru 回路。MCP 服务不自动安装驱动；显式生命周期请求会在私有桌面启动自有 Cubase 和必要的端口宿主。
 
 正式 `cubase_project_create` / `cubase_project_open` 已内置独立启动，不再需要手动运行外部启动脚本。若原生工程操作尚未提交且启动停在“检查许可证”，MCP 会结束受管 Cubase 和同会话的确切许可辅助进程，然后自动重启一次；结果带 `startupRecovery` 记录。不会结束用户另开的 Cubase，不改授权文件，不回答提示框，也不重放已提交的编辑操作。双进程停止顺序通过定向夹具测试，本轮实机正常启动及保存重开通过。
 
 本机已经完成以上安装。诊断用 `npm run start:cubase-background` 在独立 Windows 桌面打开测试副本；目标进程挂起时先加入禁止桌面创建和切换的 Windows 作业，再核对输入桌面后恢复运行。另一独立诊断启动器支持无 CPR 参数启动，并与原启动器共享作业和桌面核心。它们不是不依赖 GUI 的 Cubase 引擎，也不是 MCP 工程创建接口。后台启动返回的 JSON 包含宿主 PID 和独立启动记录、错误日志路径，长时间运行的宿主不继承调用者的输出管道；`starting` 本身不是启动成功证明。输入桌面和前台句柄是采样值，并非连续监控。这些旧启动脚本仍是诊断入口；正式生命周期工具已另行接入创建、打开、另存为和关闭。
 
-VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `cubase-ai16-headless`；已运行的 MCP 服务需要重启才能加载新增工具，控制器仍为 3.14，无需重新安装。其他客户端的 stdio 启动命令为 `node E:/VC/CubaseMCP/dist/src/server.js`。标准输出只用于 MCP 协议。
+本机已把 `cubase-ai16-headless` 注册到 Claude Code、Codex、VS Code、VS Code Insiders 和 Copilot 的用户级配置。Claude Code 使用 `~/.claude.json`，Codex 使用 `~/.codex/config.toml`，Copilot 使用 `~/.copilot/mcp-config.json`；两套 VS Code 的用户配置分别位于 `%APPDATA%/Code/User/mcp.json` 和 `%APPDATA%/Code - Insiders/User/mcp.json`。原有工作区配置 `.vscode/mcp.json` 保持不变。
+
+用户级条目固定使用本机已安装的 Node 可执行文件、`E:/VC/CubaseMCP/dist/src/server.js` 和 `CUBASE_MCP_CONFIG=E:/VC/CubaseMCP/cubase.config.json`，不依赖客户端的工作目录。Claude Code 已显示 `Connected`，Codex 已识别为启用，真实 stdio 握手和工具枚举返回 53 个工具；本次没有调用工程操作或重启 Cubase。已有聊天需要刷新 MCP 或开启新会话，当前聊天的原生工具加载尚未验证，详见 [注册记录](docs/session-log/session-35.md)。
+
+可用 `claude mcp get cubase-ai16-headless` 和 `codex mcp get cubase-ai16-headless --json` 检查客户端注册。控制器仍为 3.14，无需重新安装。其他机器的 stdio 启动命令为 `node E:/VC/CubaseMCP/dist/src/server.js`，并应按实际路径设置 `CUBASE_MCP_CONFIG`。标准输出只用于 MCP 协议。
 
 ## 本机路径
 
@@ -53,7 +59,7 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 2. `cubase_tempo_set` 设速度，`cubase_transport_set`（`field: "signature"`，如 `"3/4"`）设拍号。
 3. `cubase_midi_import` 传入 `song`：每条轨道的音符以四分音符拍为单位（`pitch`、`start`、`duration`、`velocity`），可带 `channel`（9 为 GM 鼓）、`program`、控制器和弯音；也可传现成的 `.mid` 路径。空轨道使用 `cubase_track_create`，`kind` 可选 `midi`、`instrument`、`group`、`fx`、`folder`。乐器轨道初始插槽为空，通过 `cubase_objects_list` 发现该槽，再用 `cubase_plugins_list` 和 `cubase_plugin_set` 分配实际候选乐器。
 4. `cubase_events_list` 直接读取原生轨道、Part、音频事件和单个 MIDI 音符，返回临时 `eventId`、路径和工程秒数，以及音符的音高、力度与通道。`cubase_midi_read` 保留为宿主 MIDI 文件导出解析路径；`cubase_channels_list` 列出混音通道。
-5. `cubase_event_edit` 移动或裁剪一个音频事件/Part；`cubase_midi_note_edit` 修改一个音符的 `pitch`、`velocity`、`position` 或 `duration`，每次一个字段。把快照中的 `root`、`path`、`eventId` 和原值复制到请求，停止走带后提交，以回执 `confirmed` 为准。轨道与选择编辑继续使用 `cubase_channel_set`、`cubase_track_edit` 和白名单命令。`cubase_audio_import` 按明确路径导入音频并保留源文件。
+5. `cubase_event_edit` 移动或裁剪一个音频事件/Part；`cubase_midi_note_edit` 修改一个音符的 `pitch`、`velocity`、`position` 或 `duration`，每次一个字段。把快照中的 `root`、`path`、`eventId` 和原值复制到请求，停止走带后提交，以回执 `confirmed` 为准。轨道与选择编辑继续使用 `cubase_channel_set`、`cubase_track_edit` 和白名单命令。`cubase_audio_import` 按明确路径导入音频并保留源文件。导入前会从已保存的 CPR 读取工程采样率并与源文件比较：Cubase 在这条导入路径上不做转换，48 kHz 文件进 44.1 kHz 工程会慢放 8.1 %。`sampleRateMismatch` 默认 `convert`（仅 WAV：写入转换后的 32 位浮点副本再导入），也可选 `reject` 或 `ignore`；结果里的 `sampleRate.check` 说明实际发生了什么。
 6. `cubase_transport_action` 播放、停止、回零；`cubase_audio_export` 通过宿主 NonUI 导出器写出缩混，`outputPath` 指定文件名和目录，`format` 选择 WAV/AIFF/FLAC，`sampleRate`、`bitDepth`、`floatingPoint` 指定采样格式，结果按实际文件头核对；不打开导出窗口、不执行导出键盘命令；`cubase_project_save` 保存工程。
 
 `cubase_automation_read` 按轨道返回参数轨道和归一化点；`cubase_automation_edit` 支持 `createLane`、`insert`、`setValue`、`move`、`delete`，带原值及点数校验。`cubase_routes_list` 返回宿主实际音频输入/输出和发送目标，`field: "send"` 另带零基 `sendIndex`；写入时传列表返回的 `expectedSlotUniqueId`。`cubase_routing_set` 校验旧值及目标名称后写入，并通过 MIDI 独立读回。输出/发送路由和编辑后的自动化点已通过保存重开验收。
@@ -74,7 +80,7 @@ VS Code 配置已放在 `.vscode/mcp.json`，构建后可在 MCP 面板启动 `c
 共 53 个 MCP 工具。单参数及单控制项查询、参数编辑锁、所选轨道身份和前后导航、混音通道位置、速度和时间显示反馈，以及宿主版本和功能上限查询均有明确会话约束。`cubase_parameter_edit_lock_set` 需要已观察的参数和匹配的 `expectedLocked`，回执表示已提交；使用 `cubase_parameter_get` 读取后续状态。已选轨控制包括四段 EQ、前级滤波、发送、乐器槽、五类通道条效果及其参数页、自动化和只读电平表。`cubase_control_set` 可同时校验选中通道的唯一 ID 和运行时 ID；这些检查不是与宿主状态原子绑定的事务。插件装入和替换使用 `cubase_plugin_set`；新增的 `cubase_plugin_unload` 校验插槽及其中的插件 ID，原生卸载后确认子对象数为零，已在实机观察到无提示框卸载。Control Room、固定银行及菜单白名单的可用性仍以宿主实际返回为准。
 
 `cubase_status` 返回紧凑握手，不再内嵌完整对象和控制表。`cubase_controls_list` 的控制和分组分别分页，按 `nextOffset`、`nextGroupOffset` 获取全部项目；`cubase_transport_get` 提供速度与定位器的可用性和实际反馈。长身份标识原样保留，描述性元数据有长度上限。
-
+`cubase_capabilities` 始终返回静态约束；宿主部分先读取自有运行时清单，再用 2000 ms 的只读握手读取。没有自有实例或映射不回答时，`host` 为 `null`，`hostState` 明确给出 `observed`、`code`、`timeoutMs` 和下一步操作，不再把整个查询变成一次 8 秒传输超时。`cubase_status` 仍使用完整配置时限。`bridge.status` 是只读请求：丢失回复记为 `not_started`，空闲连接会被丢弃并在下一次请求时重新打开，请求本身不重发；有写入在途时仍按未知结果处理。
 从版本 3.9 起，已选轨道及混音器银行的插入效果查看器支持提交开启、旁路、自动化和参数写入。调用前通过 `cubase_control_get` 取得完整插件身份，并在 `cubase_control_set` 中传入该身份和当前轨道或银行通道身份；这些检查不是原子事务，提交后仍需独立读回。这些新增写入的实际 Cubase 效果尚待验证，见 [插入效果查看器](docs/midi-insert-viewer.md)。
 
 轨道控制的过程值和显示值来自宿主反馈，尚未收到反馈时为 `null`；切换轨道会撤销上一轨缓存。速度和时间显示也只返回本次活动映射收到的回调，不推测未反馈的值。

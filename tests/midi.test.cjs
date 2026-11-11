@@ -235,6 +235,23 @@ test('timeout marks every pending submission unknown and permanently faults the 
     released(state);
 });
 
+test('a read-only miss reports not_started and leaves the channel reusable without replay', async () => {
+    const { state, driver } = native(), client = new MidiClient(options, driver);
+    await assert.rejects(client.request('bridge.status', {}, undefined, { readOnly: true, timeoutMs: 20 }),
+        { code: 'MIDI_TIMEOUT', execution: 'not_started' });
+    assert.deepEqual(state.requests.map(request => request.op), ['bridge.status']);
+    assert.ok(state.requests[0].deadline - Date.now() <= 20);
+    assert.equal(state.inputs[0].closes, 1);
+    assert.equal(state.outputs[0].closes, 1);
+    const next = client.request('read');
+    assert.equal(state.inputs.length, 2);
+    const frames = protocol.encode({ v: 1, id: state.requests[1].id, ok: true, data: 'reopened' });
+    for (const frame of frames) state.inputs[1].emit('message', 0, frame);
+    assert.equal(await next, 'reopened');
+    assert.deepEqual(state.requests.map(request => request.op), ['bridge.status', 'read']);
+    client.close();
+});
+
 test('remote failures preserve code, details and execution receipts without transport retries', async () => {
     const { state, driver } = native();
     const client = new MidiClient(options, driver);

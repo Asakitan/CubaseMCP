@@ -2,7 +2,35 @@
 
 Version: 0.1.0. The built server exposes **53 tools**. Session 34 fixed the Group/FX creation/persistence path and verified MIDI, instrument, folder, unload, automation points and audio output/send routing through real MCP and fresh reopen. License-startup recovery is built into MCP. **Full Cubase coverage remains incomplete.** Controller: `2026-11-10-coverage-3.14`.
 
-## Current increment: session 34
+## Current increment: session 38
+
+- `cubase_audio_import` no longer imports audio at the wrong speed. The project sample rate is read from the saved CPR (`PArrangeSetup` record) and compared with the source; `sampleRateMismatch` selects `convert` (default: a converted 32-bit float WAV copy is imported, WAV sources only), `reject` or `ignore`, and the result reports `sampleRate.check`.
+- Found in a full production where every 48 kHz layer had run 8.1 % slow in a 44.1 kHz project for eight mix revisions. Fixture tests and a real 213 s layer (difference to an independent conversion -139.8 dB) pass; **212/212 tests**. The running server of that session still had the old build, so the new branch has no live Cubase import yet. See [session record](docs/session-log/session-38.md), which also lists how the tools behave in a real mix.
+
+## Previous increment: session 37
+
+- Lifecycle port startup now waits for the launched PID and exact port enumeration, bounded to 15 seconds; the background port host is created independently instead of inheriting the lifecycle response pipe.
+- A later create reached launch but Win32_Process.Create returned 9 when two discovered Node paths were concatenated. The empty launcher now selects one Node executable; two focused fixtures passed.
+- An isolated delayed-ready and pipe fixture is the verification boundary; a later explicit create succeeded with Cubase 16.0.5, `readyForOperations: true`, `saveReturned: true`, and a 67559-byte CPR. The delayed port-start branch remains fixture-only. See [session record](docs/session-log/session-37.md).
+
+## Resolved in session 38: cross-sample-rate audio import
+
+- Session 37 observed that a 48 kHz source imported into a 44.1 kHz project plays as if it were 44.1 kHz (solo export correlation 0.999999925 at zero lag). Session 38 added detection and conversion to the tool; AIFF/FLAC sources at another rate are refused instead of converted. Background: [lifecycle evidence](docs/background-project-lifecycle.md#cross-sample-rate-audio-import-limitation-2026-11-11).
+
+## Earlier increment: session 36
+
+- `cubase_capabilities` no longer returns a bare `MIDI_TIMEOUT` when no host answers. It reads the owned-runtime inventory without MIDI, then performs a 2000 ms read-only handshake; `host` is `null` with an explicit `hostState` (`observed`, `compatible`, `code`, `timeoutMs`, `nextAction`) when no mapping answers.
+- `bridge.status` is a read-only request: a lost reply reports `execution: "not_started"` instead of `unknown`, and an otherwise idle channel is discarded and reopened by the next request. Nothing is resent, and a mutation pending at the same moment still faults the channel as before. `cubase_status` keeps the configured 8000 ms budget.
+- Verified through real stdio MCP against an absent host: the capability call returned `ok: true` in 2.9 s with `hostState.code = MIDI_TIMEOUT` and `runtime.running = false`; a repeated call and a call after an 8 s `cubase_status` timeout both stayed usable. TypeScript build and **201/201 tests** pass. See [session record](docs/session-log/session-36.md).
+
+## Historical increment: session 35
+
+- Registered `cubase-ai16-headless` in the existing Claude Code, Codex, VS Code and VS Code Insiders user configurations, plus the Copilot global MCP configuration. The portable workspace entry is unchanged.
+- All user entries use the installed Node executable and absolute server/config paths. Existing servers, model settings and account configuration were preserved.
+- Claude Code reports **Connected** in user scope; Codex reports **enabled**. All four JSON entries parsed and matched, and real stdio initialization plus `tools/list` returned **53 tools** from outside the workspace.
+- No Cubase tool was invoked, no application was restarted and no implementation changed. Existing chat sessions have not been refreshed; native tool exposure in this chat is not verified. See [registration record](docs/session-log/session-35.md).
+
+## Runtime increment: session 34
 
 - Group/FX recreation now uses the host `VST Multitrack` factory token with the actual device binding sequence. The previously failed save/reopen check passed; the final run produced no new crash dump.
 - `cubase_track_create` supports empty MIDI, instrument, Group, FX and folder tracks. A real instrument track with HALion Sonic and a folder both survived fresh reopen.
@@ -69,6 +97,10 @@ Version: 0.1.0. The built server exposes **53 tools**. Session 34 fixed the Grou
 The [session-30 matrix](docs/feature-coverage-30.md) is the historical baseline; [session-31 contracts](docs/native-file-services-31.md) describe the additions and their evidence.
 
 ## Necessary validation
+
+Session 36 changed only the capability/handshake path. TypeScript build and the full **201/201 test suite passed**, and real stdio MCP calls validated the absent-host capability response, repeated capability calls and a call surviving an 8 s `cubase_status` timeout.
+
+Session 35 registration checks passed through the native Claude/Codex queries, JSON configuration validation and one read-only MCP handshake/tool-list smoke. Runtime code is unchanged; no build, full-suite repeat or Cubase project operation was needed.
 
 Session 34 native/TypeScript builds and **199/199 tests passed**. The final real MCP fresh-reopen check covers the repaired device contract, instrument, folder, routes and automation. Startup recovery has focused fixture coverage; a real license stall was not induced. Earlier failed requests and dumps remain unchanged.
 

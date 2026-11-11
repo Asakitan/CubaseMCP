@@ -3,20 +3,22 @@
 | Source | Runtime target | Status |
 | --- | --- | --- |
 | `src/config.ts` | `dist/src/config.js` | Literal policy parser verified |
-| `src/server.ts` | `dist/src/server.js` | 53 tools; 199 tests and final native track/instrument/folder/send/automation fresh-reopen acceptance passed |
+| `src/server.ts` | `dist/src/server.js` | 53 tools; 201 tests; bounded read-only capability discovery with explicit `hostState`; native track/instrument/folder/send/automation fresh-reopen acceptance retained |
 | `src/bridge-contract.ts` | `dist/src/bridge-contract.js` | Shared host/revision/active-session gate; operational readiness is explicit |
 | `src/doctor.ts` | `dist/src/doctor.js` | Reports operational readiness separately from handshake availability |
-| `src/midi.ts` | `dist/src/midi.js` | Exact ports, deadlines, fault latch, prepared Save input/release/return, and recovery of a lost response by request ID without resending; tests passed |
+| `src/midi.ts` | `dist/src/midi.js` | Exact ports, deadlines, fault latch, prepared Save input/release/return, lost-response recovery by request ID, and read-only `not_started` misses that reopen an idle channel without resending; tests passed |
 | `remote/protocol.js` | Driver folder and `dist/remote/protocol.js` | 2 protocol tests passed |
 | `remote/controller.js` | Driver folder | Coverage 3.14 installed and active; O(1) feedback callbacks, main/mixer/Save pages, activation counters, channel and transport operations, response replay; both formerly unconfirmed volume writes confirmed live |
 | `remote/CubaseAI_MCP.js` | Driver entry | Top-level CommonJS export removed; ES5 regression passed and current host logged controller construction |
 | `remote/commands.js` | Driver command allowlist | 181 fixed bindings with a per-command live result; three are reachable only through their composite tool; commands that opened a window are excluded |
 | `scripts/Install-Remote.ps1` | Local driver installation | Four files deployed; no Cubase launch |
-| `.vscode/mcp.json` | VS Code stdio server | Configured against built entry |
+| `.vscode/mcp.json` | VS Code workspace stdio server | Portable entry retained; user registrations added separately in session 35 |
+| `~/.claude.json`, `~/.codex/config.toml` | Claude Code and Codex user MCP registration | Native queries report Connected/user scope and enabled; existing entries preserved |
+| `~/.copilot/mcp-config.json`, `%APPDATA%/{Code,Code - Insiders}/User/mcp.json` | Copilot and VS Code/Insiders user MCP registration | Absolute Node/server/config paths; JSON entries validated; shared stdio smoke returned 53 tools |
 | `.vscode/tasks.json` | Build/test/install/live-diagnostic tasks | Session-34 native/TypeScript builds and full suite 199/199 passed |
 | `scripts/Install-Midi.ps1` | Installed loopMIDI/virtualMIDI driver | Explicit installation completed |
 | `native/MidiPortHost.cs` | Hidden PowerShell port process | Real SysEx loopbacks and client-PID query tested |
-| `scripts/Start-MidiPorts.ps1` | Two exact-name virtual ports | Running with explicit stop and correlated one-shot client inspection |
+| `scripts/Start-MidiPorts.ps1` | Two exact-name virtual ports | Explicit stop, correlated client inspection, and independent process creation; live lifecycle startup after this change remains unverified |
 | `native/CubaseDesktop.cs` | Isolated Windows desktop/process lifetime | Shared suspended-process desktop and restricted-Job core for explicit CPR and no-argument launch; synthetic checks and session 24 launch observed |
 | `scripts/Start-CubaseBackground.ps1` | Explicit existing CPR or copied AI test project | Validated path, runtime receipt and no-inherited-handle holder; fresh detached launch observed in session 20 |
 | `scripts/Start-CubaseEmptyBackground.ps1`, `tests/EmptyStartProbe.cs`, `tests/empty-start-job.ps1`, `tests/background-empty-existing-guard.ps1` | Shared no-CPR private launch core | Historical guard/Job checks and PID 72128 evidence retained; the formal lifecycle now uses this launcher before its explicit native project operation |
@@ -154,6 +156,7 @@
 
 | Date | Change |
 | --- | --- |
+| 2026-11-10 | Session 35: register the built MCP server with Claude Code, Codex, VS Code/Insiders and Copilot; native client queries and read-only 53-tool handshake passed; existing chat refresh remains unverified. |
 | 2026-11-10 | Session 34: repair Group/FX factory-token persistence; add instrument/folder and send routing; built-in startup recovery and independent holder; final fresh-reopen acceptance and 199 tests passed. |
 | 2026-11-10 | Session 33: 53 tools and 195 tests; native unload, routing and automation readback; Group/FX persistence failure, explicit-connection correction awaiting validation, and matching destroyed-track crash dumps documented. |
 | 2026-11-10 | Session 32: investigate and withdraw incomplete empty-MIDI creation; preserve negative routing/track receipts and license-readiness blocker; retain 47 tools; caller/window diagnostics and four final exposure checks passed. |
@@ -190,3 +193,5 @@
 | 2026-11-10 | Session 30: binding failure traced to callback cost and fixed in 3.14; 43 tools with MIDI import/read, channel, track, transport and audio export tools; every allowlisted command executed live; 28-check song acceptance through real MCP; 191/191 passed. |
 | 2026-11-10 | Session 31 in progress: investigate and implement explicit native file/editing operations; isolate new static evidence and preserve the session-30 working tree. |
 | 2026-11-10 | Session 31: 47 tools, 193/193 tests; NonUI export, audio import, audio move/trim and single-note edits observed; nonzero-part time context fixed; save/fresh reopen confirmed. Track factories, unload and other data contracts remain open. |
+| 2026-11-11 | Session 36: `cubase_capabilities` reports an explicit `hostState` instead of a bare `MIDI_TIMEOUT` (owned-runtime read plus a 2000 ms read-only handshake); read-only misses report `not_started` and reopen an idle channel without replay; 201/201 tests passed. |
+| 2026-11-11 | Session 37: bound MIDI-host startup readiness, prevent inherited response handles and select one Node executable; 2 focused fixtures passed; live create saved with ports already present. |

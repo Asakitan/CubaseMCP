@@ -64,3 +64,17 @@ The operation does not touch `managed-project.json`, does not wait for a mapping
 Live evidence: the import of a two-track file added `Synth: HSSE Main`, `MidiChannel: Piano` and `MidiChannel: Bass` without any new window, and the MIDI file that Cubase then wrote for the project contained exactly the imported notes, programs and controller event (`artifacts/managed-projects/session-30/midi-a`). The later acceptance run is recorded in `artifacts/ipc/song30-live-*.json`.
 
 The owned launch needs a process context that permits `CREATE_BREAKAWAY_FROM_JOB`. Since session 34, the fixed WMI/Node supervisor supplies that context automatically. The final ordinary MCP client fresh reopen passed; the startup-recovery branch has isolated fixture coverage and was not fault-injected into a real license check during that run.
+
+## Port-host startup readiness (session 37)
+
+If exact ports are absent, lifecycle startup launches the port host independently without inherited response handles, then waits up to 15 seconds for that PID to report ready and for exact port enumeration. Failure, exit or timeout stops progression before native admission; no submitted project operation is replayed. Delayed port readiness has fixture coverage; a later live project create succeeded with ports already present.
+
+When discovering `node.exe`, the empty launcher selects one application path before constructing the process command line. A multiple-match failure was reproduced and the corrected selection passed a synthetic process fixture; a later live project create with ports already present completed and saved successfully.
+
+## Cross-sample-rate audio import limitation (2026-11-11)
+
+**Resolved in session 38:** `cubase_audio_import` now reads the project rate from the CPR and converts a mismatched WAV before the host sees it (or refuses it); see [session 38](session-log/session-38.md). The observation below is kept as the evidence that led there.
+
+In the tested `E:/VC/LabyRinth/production/cubase/LabyRinth_note_production_v02.cpr` project, a 48 kHz source imported through `cubase_audio_import` did not retain its intended playback speed. The solo Cubase export matched the 48 kHz samples interpreted at 44.1 kHz: correlation 0.999999925 at zero lag versus 0.007975 for the nominal-speed hypothesis. Evidence: `E:/VC/LabyRinth/production/evidence/cubase_import_timebase_probe.json`. This is an observed import/playback defect, not merely an event-list display discrepancy; the observation does not establish the sample rate of every project or every possible import path.
+
+For that project, the production agent preserved the original sources, made 44.1 kHz resampled working copies of the three accompaniment stems, used native 44.1 kHz VOCALOID output, and replaced only tracks created in the current session. Event readback for the full-length material was approximately 206.8679365 seconds and the short vocal event approximately 19 seconds. This is a project-specific mitigation, not a general MCP fix: automatic conversion or rejection of mismatched sample rates remains unimplemented, and no corrected-import playback comparison is claimed here.

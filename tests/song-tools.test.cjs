@@ -548,6 +548,7 @@ test('audio import preserves its source, copies into the managed project and cal
     const project = temporaryProject(), source = path.join(project.directory, 'Reference.wav');
     const bytes = smallWav();
     fs.writeFileSync(source, bytes);
+    writeProjectFile(project, 8000);                       // the saved project runs at the rate of the source
     let imported = false;
     try {
         await withServer({
@@ -577,6 +578,86 @@ test('audio import preserves its source, copies into the managed project and cal
             assert.equal(reply.data.renamed.after.display, 'Imported Audio');
             assert.equal(calls.filter(entry => entry.lifecycle === 'import_audio').length, 1);
             assert.equal(calls.some(entry => /^commands\./.test(entry.op || '')), false);
+        });
+    } finally { project.remove(); }
+});
+
+// A saved project carries its sample rate 72 bytes after the name of its setup record (src/project-rate.ts).
+function writeProjectFile(project, rate) {
+    const bytes = Buffer.alloc(400);
+    bytes.write('PArrangeSetup\0', 100, 'latin1');
+    bytes.writeFloatBE(rate, 172);
+    bytes.writeUInt32BE(24, 176);
+    fs.writeFileSync(project.projectPath, bytes);
+}
+
+function importScript(project, seen) {
+    let imported = false;
+    return {
+        bridge(op) {
+            if (op === 'transport.state') return { playing: false, recording: false };
+            if (op === 'channels.list') return { nextOffset: null, items: [channel(1, 'OutputChannel', 'Stereo Out'),
+                ...(imported ? [channel(2, 'AudioChannel', 'Layer')] : [])] };
+            throw new Error('unexpected ' + op);
+        },
+        lifecycle(action, args) {
+            if (action === 'status') return project.status;
+            assert.equal(action, 'import_audio');
+            seen.push(args.audioPath);
+            imported = true;
+            return { ok: true, native: { importReturned: true, audioClips: 1 } };
+        }
+    };
+}
+
+test('audio at another sample rate than the project is converted before the host sees it', async () => {
+    const project = temporaryProject(), source = path.join(project.directory, 'Layer.wav'), seen = [];
+    const bytes = smallWav(0.5);                                   // 8000 Hz, 4000 frames
+    fs.writeFileSync(source, bytes);
+    writeProjectFile(project, 16000);
+    try {
+        await withServer(importScript(project, seen), async (call) => {
+            const reply = await call('cubase_audio_import', { session: 'song', audioPath: source, confirmImport: true });
+            assert.equal(reply.ok, true, JSON.stringify(reply));
+            assert.deepEqual(fs.readFileSync(source), bytes);
+            assert.equal(reply.data.sampleRate.source, 8000);
+            assert.equal(reply.data.sampleRate.project, 16000);
+            assert.equal(reply.data.sampleRate.check, 'converted');
+            assert.equal(reply.data.sampleRate.conversion.frames, 8000);
+            assert.equal(seen.length, 1);
+            assert.match(path.basename(seen[0]), /^Layer-[0-9a-f]{10}-16000Hz\.wav$/);
+            const header = fs.readFileSync(seen[0]).subarray(0, 44);
+            assert.equal(header.readUInt32LE(24), 16000);
+            assert.equal(header.readUInt16LE(20), 3);                // IEEE float
+        });
+    } finally { project.remove(); }
+});
+
+test('a matching rate is copied unchanged, and the reject policy stops a mismatch before anything is written', async () => {
+    const project = temporaryProject(), source = path.join(project.directory, 'Layer.wav'), seen = [];
+    const bytes = smallWav(0.5);
+    fs.writeFileSync(source, bytes);
+    try {
+        writeProjectFile(project, 8000);
+        await withServer(importScript(project, seen), async (call) => {
+            const reply = await call('cubase_audio_import', { session: 'song', audioPath: source, confirmImport: true });
+            assert.equal(reply.data.sampleRate.check, 'match');
+            assert.equal(reply.data.sampleRate.conversion, null);
+            assert.deepEqual(fs.readFileSync(seen[0]), bytes);
+        });
+        writeProjectFile(project, 44100);
+        await withServer(importScript(project, seen), async (call, calls) => {
+            const before = fs.readdirSync(path.join(project.directory, 'Audio')).length;
+            const reply = await call('cubase_audio_import', { session: 'song', audioPath: source, confirmImport: true, sampleRateMismatch: 'reject' });
+            assert.equal(reply.ok, false);
+            assert.equal(reply.error.code, 'AUDIO_SAMPLE_RATE_MISMATCH');
+            assert.equal(reply.error.execution, 'not_started');
+            assert.match(reply.error.message, /8000 Hz.*44100 Hz.*fast/);
+            assert.equal(calls.some(entry => entry.lifecycle === 'import_audio'), false);
+            assert.equal(fs.readdirSync(path.join(project.directory, 'Audio')).length, before);
+            const ignored = await call('cubase_audio_import', { session: 'song', audioPath: source, confirmImport: true, sampleRateMismatch: 'ignore' });
+            assert.equal(ignored.ok, true, JSON.stringify(ignored));
+            assert.equal(ignored.data.sampleRate.check, 'imported_at_wrong_speed');
         });
     } finally { project.remove(); }
 });
@@ -698,6 +779,28 @@ test('audio export refuses metadata mismatch and missing output without replay',
             assert.equal(result.error.execution, 'submitted');
             assert.equal(calls.filter(entry => entry.lifecycle === 'export_audio').length, 1);
             assert.equal(calls.some(entry => /^commands\./.test(entry.op || '')), false);
+        });
+    } finally { project.remove(); }
+});
+
+test('an unreadable project rate stops the import unless the caller chooses to ignore the rate', async () => {
+    const project = temporaryProject(), source = path.join(project.directory, 'Layer.wav'), seen = [];
+    fs.writeFileSync(source, smallWav(0.5));
+    try {
+        fs.writeFileSync(project.projectPath, Buffer.alloc(64));     // a project file without the setup record
+        await withServer(importScript(project, seen), async (call) => {
+            for (const policy of ['convert', 'reject']) {
+                const refused = await call('cubase_audio_import', { session: 'song', audioPath: source, confirmImport: true, sampleRateMismatch: policy });
+                assert.equal(refused.ok, false);
+                assert.equal(refused.error.code, 'AUDIO_SAMPLE_RATE_UNKNOWN');
+                assert.equal(refused.error.execution, 'not_started');
+            }
+            assert.equal(seen.length, 0);
+            assert.equal(fs.existsSync(path.join(project.directory, 'Audio')), false);
+            const reply = await call('cubase_audio_import', { session: 'song', audioPath: source, confirmImport: true, sampleRateMismatch: 'ignore' });
+            assert.equal(reply.ok, true, JSON.stringify(reply));
+            assert.equal(reply.data.sampleRate.check, 'project_rate_unknown');
+            assert.equal(seen.length, 1);
         });
     } finally { project.remove(); }
 });

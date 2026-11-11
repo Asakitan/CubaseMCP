@@ -25,3 +25,7 @@ The main agent's subsequent explicit MCP create completed with Cubase 16.0.5 and
 ## Remaining
 
 The delayed port-host readiness branch retains fixture-only verification. `Invoke-Contracts33Reopen.ps1` and `Start-BindingTestPorts26.ps1` use a similar multiple-match pattern and are diagnostic scripts outside this repair. Existing port and editor processes were not terminated.
+
+## Subsequent cross-sample-rate import finding
+
+The main agent observed slowed playback after importing a 48 kHz source into `E:/VC/LabyRinth/production/cubase/LabyRinth_note_production_v02.cpr`. A solo export matched the samples interpreted at 44.1 kHz with correlation 0.999999925 and zero lag; nominal-speed correlation was 0.007975. Evidence: `E:/VC/LabyRinth/production/evidence/cubase_import_timebase_probe.json`. The project now uses resampled 44.1 kHz accompaniment working copies and native 44.1 kHz vocal output, with event durations read back as approximately 206.8679365 and 19 seconds. Original source files were preserved. No general sample-rate detection/conversion was implemented, and the corrected playback was not independently compared in this documentation task.

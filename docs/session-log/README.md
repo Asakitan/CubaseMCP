@@ -36,3 +36,7 @@
 | [32](session-32.md) | 2026-11-10 | Incomplete empty-MIDI prototype withdrawn; negative routing probe, bounded diagnostics and license-readiness blocker; 47 tools retained, four host contracts remain incomplete. |
 | [33](session-33.md) | 2026-11-10 | 53 tools and 195 tests; native unload/routing/automation readback; Group/FX persistence failure and matching destroyed-track crash dumps, with final host verification still pending. |
 | [34](session-34.md) | 2026-11-10 | Repaired Group/FX factory-token binding; real instrument/folder and send routing; MCP-owned startup recovery; final fresh-reopen acceptance and 199 tests passed. |
+| [35](session-35.md) | 2026-11-10 | Register Claude Code, Codex, VS Code/Insiders and Copilot user MCP entries; native lookup and read-only 53-tool handshake passed. |
+| [36](session-36.md) | 2026-11-11 | Capability discovery no longer fails with `MIDI_TIMEOUT` when no host answers; bounded read-only probe, explicit `hostState`, idle channel reopen without replay and 201 tests. |
+| [37](session-37.md) | 2026-11-11 | Diagnose and repair port-host readiness and inherited lifecycle pipe. |
+| [38](session-38.md) | 2026-11-11 | Audio import reads the project sample rate from the CPR and converts or refuses a mismatched source; 212 tests; findings from a full song production. |

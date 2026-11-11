@@ -8,7 +8,7 @@ const { Client, InMemoryTransport } = require('@modelcontextprotocol/client');
 const { StdioClientTransport } = require('@modelcontextprotocol/client/stdio');
 const { verifyBridge, inspectBridge, EXPECTED_BRIDGE_REVISION } = require('../dist/src/bridge-contract.js');
 const { createServer } = require('../dist/src/server.js');
-const { MidiClient } = require('../dist/src/midi.js');
+const { MidiClient, BridgeError } = require('../dist/src/midi.js');
 
 test('all session operations reject an obsolete bridge before host dispatch', async () => {
     const original = MidiClient.prototype.request;
@@ -79,6 +79,44 @@ test('all session operations reject an obsolete bridge before host dispatch', as
         await runtime.server.close();
         runtime.close();
         MidiClient.prototype.request = original;
+    }
+});
+
+test('capability discovery reports a silent bridge without returning a transport timeout', async () => {
+    const originalRequest = MidiClient.prototype.request;
+    const lifecycle = require('../dist/src/lifecycle.js');
+    const originalLifecycle = lifecycle.runLifecycle;
+    const budgets = [];
+    MidiClient.prototype.request = async function (operation, args, signal, budget) {
+        assert.equal(operation, 'bridge.status');
+        budgets.push(budget);
+        throw new BridgeError('MIDI_TIMEOUT', 'MIDI response timed out.', 'not_started', { id: 'silent', readOnly: true });
+    };
+    lifecycle.runLifecycle = async action => {
+        assert.equal(action, 'status');
+        return { ok: true, action: 'status', running: false, owned: false, pid: null, creation: null, managedProject: null };
+    };
+    const runtime = createServer(), client = new Client({ name: 'capability-discovery', version: '1' });
+    const [left, right] = InMemoryTransport.createLinkedPair();
+    try {
+        await Promise.all([runtime.server.connect(right), client.connect(left)]);
+        const response = await client.callTool({ name: 'cubase_capabilities', arguments: {} });
+        assert.notEqual(response.isError, true);
+        const body = JSON.parse(response.content.find(part => part.type === 'text').text);
+        assert.equal(body.ok, true);
+        assert.deepEqual(budgets, [{ readOnly: true, timeoutMs: 2000 }]);
+        assert.equal(body.data.host, null);
+        assert.equal(body.data.runtime.running, false);
+        assert.equal(body.data.runtime.observed, true);
+        assert.equal(body.data.hostState.observed, false);
+        assert.equal(body.data.hostState.code, 'MIDI_TIMEOUT');
+        assert.equal(body.data.hostState.timeoutMs, 2000);
+        assert.match(body.data.hostState.nextAction, /No owned Cubase host is running/);
+        assert.equal(body.data.constraints.fallback, false);
+        assert.equal(body.data.constraints.fullCubaseCoverage, false);
+    } finally {
+        await client.close(); await runtime.server.close(); runtime.close();
+        MidiClient.prototype.request = originalRequest; lifecycle.runLifecycle = originalLifecycle;
     }
 });
 

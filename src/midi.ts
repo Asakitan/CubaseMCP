@@ -48,9 +48,22 @@ interface Pending {
     signal?: AbortSignal;
     abort?: () => void;
     internal?: boolean;
+    readOnly?: boolean;
     probe?: ReturnType<typeof setTimeout>;
     session?: string;
     deadline: number;
+}
+
+/** Per-request transport budget. Absent fields keep the configured timeout and the default receipt. */
+export interface RequestBudget {
+    /** Replaces `timeoutMs` for this request only. */
+    timeoutMs?: number;
+    /**
+     * The operation cannot change project state. A lost reply therefore reports `not_started`,
+     * and an otherwise idle channel is closed and reopened on the next request instead of staying
+     * faulted. Nothing is resent.
+     */
+    readOnly?: boolean;
 }
 
 // A response frame can be lost in transit (observed when the Cubase transport stops). After this
@@ -144,11 +157,16 @@ export class MidiClient {
         return listing;
     }
 
-    async request(op: string, args: Record<string, unknown> = {}, signal?: AbortSignal): Promise<unknown> {
-        return this.transmit(op, args, signal, false);
+    async request(op: string, args: Record<string, unknown> = {}, signal?: AbortSignal, budget?: RequestBudget): Promise<unknown> {
+        return this.transmit(op, args, signal, false, budget);
     }
 
-    private async transmit(op: string, args: Record<string, unknown>, signal: AbortSignal | undefined, internal: boolean): Promise<unknown> {
+    /** A client that was never opened, or was recycled after a read-only miss, can still be used. */
+    get usable(): boolean {
+        return this.state === 'new' || this.state === 'open';
+    }
+
+    private async transmit(op: string, args: Record<string, unknown>, signal: AbortSignal | undefined, internal: boolean, budget?: RequestBudget): Promise<unknown> {
         if (this.state === 'closed' || this.state === 'faulted') {
             throw new BridgeError(this.state === 'closed' ? 'MIDI_CLOSED' : 'MIDI_FAULTED',
                 'Construct a new MIDI client before sending another request.', 'not_started', this.fault);
@@ -157,9 +175,14 @@ export class MidiClient {
         if (typeof op !== 'string' || !op.trim() || !record(args)) {
             throw new BridgeError('INVALID_REQUEST', 'An operation name and an argument object are required.');
         }
+        if (budget?.timeoutMs !== undefined && (!Number.isInteger(budget.timeoutMs) || budget.timeoutMs < 1 || budget.timeoutMs > 2147483647)) {
+            throw new BridgeError('INVALID_REQUEST', 'A request budget timeout must be a positive integer of milliseconds.');
+        }
         if (this.pending.size >= 32) throw new BridgeError('MIDI_BUSY', 'At most 32 requests may be pending.');
         const id = randomBytes(16).toString('hex');
-        const deadline = Date.now() + (internal ? Math.min(1500, this.options.timeoutMs) : this.options.timeoutMs);
+        const timeoutMs = budget?.timeoutMs ?? (internal ? Math.min(1500, this.options.timeoutMs) : this.options.timeoutMs);
+        const readOnly = budget?.readOnly === true;
+        const deadline = Date.now() + timeoutMs;
         let frames: number[][];
         try {
             frames = encode({ v: 1, id, deadline, op, args });
@@ -170,12 +193,20 @@ export class MidiClient {
         if (Date.now() >= deadline) throw new BridgeError('MIDI_TIMEOUT', 'Request expired before submission.');
         return new Promise((resolve, reject) => {
             const pending: Pending = {
-                resolve, reject, sent: false, signal, internal, deadline,
+                resolve, reject, sent: false, signal, internal, readOnly, deadline,
                 session: typeof args.session === 'string' ? args.session : undefined,
                 timer: setTimeout(() => {
                     // A lost look-up only ends that look-up; a lost operation response faults the channel.
-                    if (internal) this.settle(id, new BridgeError('MIDI_TIMEOUT', 'Response look-up timed out.', 'not_started', { id }));
-                    else this.fail(new BridgeError('MIDI_TIMEOUT', 'MIDI response timed out.', 'unknown', { id }));
+                    if (internal) {
+                        this.settle(id, new BridgeError('MIDI_TIMEOUT', 'Response look-up timed out.', 'not_started', { id }));
+                    } else if (readOnly && !this.operationPending(id)) {
+                        // Nothing was executed and nothing else is in flight: drop the silent channel so the
+                        // next call opens it again. The request itself is reported, never repeated.
+                        this.settle(id, new BridgeError('MIDI_TIMEOUT', 'MIDI response timed out.', 'not_started', { id, readOnly: true }));
+                        this.recycle();
+                    } else {
+                        this.fail(new BridgeError('MIDI_TIMEOUT', 'MIDI response timed out.', 'unknown', { id }));
+                    }
                 }, Math.max(1, deadline - Date.now()))
             };
             this.pending.set(id, pending);
@@ -410,6 +441,22 @@ export class MidiClient {
         this.fault = error;
         this.rejectPending(error);
         this.dispose();
+    }
+
+    /** Only other non-look-up requests decide whether the channel is still needed. */
+    private operationPending(exceptId: string): boolean {
+        for (const [id, pending] of this.pending) if (id !== exceptId && !pending.internal) return true;
+        return false;
+    }
+
+    /** Drop a silent transport without marking it faulted; the next request opens both ports again. */
+    private recycle(): void {
+        for (const [id, pending] of this.pending) {
+            this.settle(id, new BridgeError('MIDI_CLOSED', 'The bridge connection was recycled after a read-only miss.', 'not_started', { id }));
+        }
+        this.dispose();
+        this.fault = undefined;
+        this.state = 'new';
     }
 
     private dispose(): void {

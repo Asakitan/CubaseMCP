@@ -6,7 +6,7 @@ import { loadConfig, type Configuration } from './config.js';
 import { BridgeError, MidiClient } from './midi.js';
 import { inspectBridge, verifyBridge } from './bridge-contract.js';
 import { constants } from 'node:fs';
-import { copyFile, lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { basename, extname, isAbsolute, join, resolve } from 'node:path';
 import { saveProjectObserved } from './save-observer.js';
@@ -14,6 +14,8 @@ import { managedProjectOf, readOwnedWindows, runLifecycle } from './lifecycle.js
 import { parseSmf, SmfError } from './smf.js';
 import { awaitWrittenMidiFile, describeMidi, listMidiFiles, songToSmf, type Song } from './song.js';
 import { inspectAudio } from './audio-info.js';
+import { readProjectSampleRate } from './project-rate.js';
+import { resampleWavFile } from './resample.js';
 
 export const constraints = {
     backend: 'midi',
@@ -67,6 +69,22 @@ function failure(error: unknown): CallToolResult {
     return { isError: true, content: [{ type: 'text', text: JSON.stringify(body) }], structuredContent: body };
 }
 
+// Capability discovery is a summary, not the handshake of record: a mapping that does not answer
+// must be reported as unobserved instead of burning the configured operation timeout.
+const CAPABILITY_HANDSHAKE_MS = 2000;
+
+/** Owned-runtime inventory without any MIDI handshake; a lifecycle failure is reported, not thrown. */
+async function ownedRuntime(signal?: AbortSignal): Promise<Record<string, unknown>> {
+    try {
+        return { observed: true, ...(await runLifecycle('status', {}, signal)) };
+    } catch (error) {
+        return { observed: false, running: null,
+            error: error instanceof BridgeError
+                ? { code: error.code, message: error.message }
+                : { code: 'LIFECYCLE_STATUS_FAILED', message: error instanceof Error ? error.message : String(error) } };
+    }
+}
+
 export function createServer(config: Configuration = loadConfig()) {
     let client = new MidiClient(config.midi);
     let lifecycleBusy = false;
@@ -78,8 +96,10 @@ export function createServer(config: Configuration = loadConfig()) {
     const reference = { ...session, root, objectId: z.number().int().nonnegative() };
     const pagination = { offset: z.number().int().nonnegative().default(0), limit: z.number().int().min(1).max(64).default(32) };
 
-    async function readStatus(signal?: AbortSignal): Promise<Record<string, unknown>> {
-        const status = await client.request('bridge.status', {}, signal) as Record<string, unknown>;
+    async function readStatus(signal?: AbortSignal, timeoutMs?: number): Promise<Record<string, unknown>> {
+        // bridge.status never changes project state, so a lost reply is not an uncertain submission.
+        const status = await client.request('bridge.status', {}, signal,
+            { readOnly: true, ...(timeoutMs === undefined ? {} : { timeoutMs }) }) as Record<string, unknown>;
         const compatibility = inspectBridge(status);
         if (!compatibility.hostVersionMatches) {
             client.close();
@@ -665,9 +685,10 @@ export function createServer(config: Configuration = loadConfig()) {
         } finally { lifecycleBusy = false; }
     });
 
-    compose('cubase_audio_import', 'Import a local WAV, AIFF or FLAC file into the owned project through native pool/arranger operations, without opening a chooser or running a key command. The original file is preserved and a unique copy is placed in the project Audio folder. position optionally sets the project cursor through the transport API; otherwise the current cursor is used. trackName optionally renames the single added audio channel. Returns source metadata, native receipt and actual added channels; no automatic replay.', {
+    compose('cubase_audio_import', 'Import a local WAV, AIFF or FLAC file into the owned project through native pool/arranger operations, without opening a chooser or running a key command. The original file is preserved and a unique copy is placed in the project Audio folder. Cubase plays a file whose sample rate differs from the project rate without conversion (a 48 kHz file in a 44.1 kHz project runs 8.1 % slow and flat), so the project rate is read from the saved .cpr and compared first: sampleRateMismatch "convert" (default) writes a converted 32-bit float WAV copy and imports that (WAV sources only), "reject" refuses the import, "ignore" imports the file as it is. The result reports projectSampleRate and the conversion. position optionally sets the project cursor through the transport API; otherwise the current cursor is used. trackName optionally renames the single added audio channel. Returns source metadata, native receipt and actual added channels; no automatic replay.', {
         ...session, audioPath: z.string().min(5).max(500), position: z.string().min(1).max(64).optional(),
-        trackName: z.string().min(1).max(100).optional(), confirmImport: z.literal(true)
+        trackName: z.string().min(1).max(100).optional(), confirmImport: z.literal(true),
+        sampleRateMismatch: z.enum(['convert', 'reject', 'ignore']).default('convert')
     }, false, async (args, signal) => {
         const source = args.audioPath as string;
         if (!isAbsolute(source) || !['.wav', '.aif', '.aiff', '.flac'].includes(extname(source).toLowerCase())) {
@@ -680,6 +701,22 @@ export function createServer(config: Configuration = loadConfig()) {
         const audio = await inspectAudio(source);
         if (!audio.supported || !audio.frames) throw new BridgeError('AUDIO_FORMAT_UNSUPPORTED', 'The source has no supported, complete audio format.', 'not_started', audio);
         const project = managedProjectOf(await runLifecycle('status', {}, signal));
+        // The host does not convert on this import path: a file at another rate than the project plays at the wrong speed.
+        const projectRate = await readProjectSampleRate(project.projectPath);
+        const sourceRate = Math.round(audio.sampleRate ?? 0), policy = args.sampleRateMismatch as 'convert' | 'reject' | 'ignore';
+        // An unknown rate on either side is not a match (session 39 review): without "ignore" nothing is imported.
+        if ((!projectRate || sourceRate <= 0) && policy !== 'ignore') {
+            throw new BridgeError('AUDIO_SAMPLE_RATE_UNKNOWN', `The ${!projectRate ? 'project' : 'source'} sample rate could not be read, so a wrong playback speed cannot be ruled out. ` +
+                (!projectRate ? 'The project rate is read from the saved .cpr: save the project first. ' : '') + 'Pass sampleRateMismatch "ignore" to import the file as it is.',
+            'not_started', { sourceSampleRate: sourceRate || null, projectSampleRate: projectRate?.sampleRate ?? null, projectPath: project.projectPath });
+        }
+        const mismatch = !!projectRate && sourceRate > 0 && sourceRate !== projectRate.sampleRate;
+        if (mismatch && policy !== 'ignore' && (policy === 'reject' || audio.format !== 'wav')) {
+            throw new BridgeError('AUDIO_SAMPLE_RATE_MISMATCH', `The source is ${sourceRate} Hz, the project runs at ${projectRate!.sampleRate} Hz; Cubase would play it ` +
+                `${(100 * (1 - projectRate!.sampleRate / sourceRate)).toFixed(1)} % ${sourceRate > projectRate!.sampleRate ? 'slow' : 'fast'}. ` +
+                (policy === 'reject' ? 'Convert the file to the project rate first.' : 'Only WAV sources are converted here; convert this file to the project rate first.'),
+            'not_started', { sourceSampleRate: sourceRate, projectSampleRate: projectRate!.sampleRate, format: audio.format });
+        }
         const transport = await client.request('transport.state', { session: args.session }, signal) as { playing: boolean | null; recording: boolean | null };
         if (transport.playing !== false || transport.recording !== false) throw new BridgeError('TRANSPORT_RUNNING', 'Stop the transport before importing audio.');
         const idle = await unexpectedWindows(project.name, signal);
@@ -688,10 +725,24 @@ export function createServer(config: Configuration = loadConfig()) {
         const directory = join(project.directory, 'Audio');
         await mkdir(directory, { recursive: true });
         if ((await lstat(directory)).isSymbolicLink()) throw new BridgeError('AUDIO_DIRECTORY_INVALID', 'The project Audio directory is a link.');
-        const importedPath = join(directory, `${basename(source, extname(source))}-${randomBytes(5).toString('hex')}${extname(source)}`);
-        await copyFile(source, importedPath, constants.COPYFILE_EXCL);
+        const convert = mismatch && policy === 'convert';
+        const importedPath = join(directory, `${basename(source, extname(source))}-${randomBytes(5).toString('hex')}${convert ? `-${projectRate!.sampleRate}Hz.wav` : extname(source)}`);
+        let conversion: Record<string, unknown> | null = null;
+        if (convert) {
+            try { conversion = { ...await resampleWavFile(source, importedPath, projectRate!.sampleRate), method: 'polyphase windowed sinc, written as 32-bit float' }; }
+            catch (error) {
+                await rm(importedPath, { force: true }).catch(() => undefined);      // a partly written copy must not stay in the Audio folder
+                throw new BridgeError('AUDIO_CONVERSION_FAILED', `The source could not be converted to the project rate: ${error instanceof Error ? error.message : String(error)}`,
+                    'not_started', { sourceSampleRate: sourceRate, projectSampleRate: projectRate!.sampleRate });
+            }
+        } else await copyFile(source, importedPath, constants.COPYFILE_EXCL);
         if (args.position !== undefined) {
-            await client.request('transport.time', { session: args.session, display: 'primary', locator: 'cursor', time: args.position }, signal);
+            try { await client.request('transport.time', { session: args.session, display: 'primary', locator: 'cursor', time: args.position }, signal); }
+            catch (error) {
+                // nothing has been handed to the host yet: the copy made for this request is taken back
+                await rm(importedPath, { force: true }).catch(() => undefined);
+                throw error;
+            }
         }
         let outcome: Record<string, unknown>;
         lifecycleBusy = true;
@@ -713,7 +764,9 @@ export function createServer(config: Configuration = loadConfig()) {
             renamed = await client.request('channels.set', { session: host.session, objectId: audioChannels[0].objectId,
                 expectedUniqueId: audioChannels[0].uniqueIdString, field: 'name', value: args.trackName }, signal);
         }
-        return { session: host.session, source: { path: source, importedPath, audio }, native: outcome.native,
+        const sampleRate = { source: sourceRate || null, project: projectRate?.sampleRate ?? null,
+            check: !projectRate ? 'project_rate_unknown' : !mismatch ? 'match' : convert ? 'converted' : 'imported_at_wrong_speed', conversion };
+        return { session: host.session, source: { path: source, importedPath, audio }, sampleRate, native: outcome.native,
             channels: { added: added.map(brief) }, renamed, windows: { unexpected: windows.unexpected }, artifacts: outcome.artifacts };
     });
 
@@ -905,13 +958,30 @@ export function createServer(config: Configuration = loadConfig()) {
     });
 
     server.registerTool('cubase_capabilities', {
-        description: 'Return implementation constraints together with live host capabilities; fails if the host is unavailable instead of returning mock capabilities.',
+        description: 'Return the implementation constraints together with an explicit live-host observation. The constraint list is always available, so discovery does not require a running DAW: host is null and hostState names an absent, silent or incompatible bridge instead of returning a transport timeout. A live host is read with a 2000 ms read-only handshake (cubase_status keeps the full configured budget). Never returns mock host data.',
         inputSchema: z.object({}).strict(),
         annotations: { readOnlyHint: true, openWorldHint: false }
     }, async (_args, context) => {
         try {
             if (lifecycleBusy) throw new BridgeError('LIFECYCLE_BUSY', 'An owned runtime transition is active.');
-            return result({ constraints, host: await readStatus(context.mcpReq.signal) });
+            const runtime = await ownedRuntime(context.mcpReq.signal);
+            let host: Record<string, unknown> | null = null;
+            let hostState: Record<string, unknown>;
+            try {
+                host = await readStatus(context.mcpReq.signal, CAPABILITY_HANDSHAKE_MS);
+                hostState = { observed: true, compatible: true, readOnly: true, timeoutMs: CAPABILITY_HANDSHAKE_MS };
+            } catch (error) {
+                const probeError = error instanceof BridgeError ? error
+                    : new BridgeError('CAPABILITY_PROBE_FAILED', error instanceof Error ? error.message : String(error), 'not_started');
+                hostState = { observed: probeError.code === 'HOST_VERSION_MISMATCH', compatible: false, readOnly: true,
+                    timeoutMs: CAPABILITY_HANDSHAKE_MS, code: probeError.code, message: probeError.message,
+                    nextAction: runtime.running === true
+                        ? 'The owned host is running but its MIDI Remote mapping did not answer. Use cubase_status for the full configured handshake; replace the instance explicitly if it stays silent.'
+                        : 'No owned Cubase host is running. Start one with cubase_project_create or cubase_project_open. Nothing was retried.' };
+                // readStatus closes a wrong-version host; a faulted, closed or discarded client cannot be reused.
+                if (!client.usable) client = new MidiClient(config.midi);
+            }
+            return result({ constraints, runtime, host, hostState });
         }
         catch (error) { return failure(error); }
     });
