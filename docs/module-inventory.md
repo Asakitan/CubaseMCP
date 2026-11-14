@@ -131,10 +131,10 @@
 | `src/smf.ts`, `tests/smf.test.cjs` | `dist/src/smf.js` | Dependency-free Standard MIDI File parser and builder; 23 tests |
 | `src/song.ts`, `tests/song.test.cjs` | `dist/src/song.js` | Beat-based song to MIDI file, MIDI file to beat view, and read-only observation of files the host writes; 11 tests |
 | `src/wav.ts`, `tests/wav.test.cjs` | `dist/src/wav.js` | Read-only WAVE format and level inspection for exported audio; 12 tests |
-| `src/audio-info.ts`, `native/bridge/NativeAudioExport.h`, `docs/native-file-services-31.md` | Audio metadata reader and native operation 5 | Builds and 3 focused contracts passed; real MCP WAV24, AIFF16, FLAC24 and WAV32-float outputs matched requested path/rate/depth |
+| `src/audio-info.ts`, `native/bridge/NativeAudioExport.h`, `docs/native-file-services-31.md` | Audio metadata reader and native operation 5 | Builds and 3 focused contracts passed; real MCP WAV24, AIFF16, FLAC24 and WAV32-float outputs matched requested path/rate/depth; session 44 fixed 64-bit 7th parameter on `0x3b14d40` (`exportStage=4` `0xC0000005`) and pre-render `operationStarted` state |
 | `scripts/call-mcp31.cjs` | One-shot real stdio MCP acceptance client | Records schema admission, session and one tool result in a new JSONL; never repeats a mutation |
 | `native/bridge/NativeAudioImport.h`, `cubase_audio_import` | Native operation 6, source copy and added-channel read-back | Build and focused contract passed; real AIFF import added one channel and rendered audible audio |
-| `native/bridge/NativeProjectModel.h`, `cubase_events_list`, `cubase_event_edit`, `cubase_midi_note_edit` | Native operations 7/8, bounded tree and guarded field setters | Audio move/trim and four single-note fields confirmed; exact note identity and old-state rejection; all three context time bases corrected and inverse checked; semantic fresh reopen observed |
+| `native/bridge/NativeProjectModel.h`, `cubase_events_list`, `cubase_event_edit`, `cubase_midi_note_edit` | Native operations 7/8, bounded tree and guarded field setters | Audio move/trim and four single-note fields confirmed; exact note identity and old-state rejection; all three context time bases corrected and inverse checked; semantic fresh reopen observed; session 44 raised tree bound to 131072 with O(1) visited set and verified live on 8659-event project |
 | `tests/song-tools.test.cjs`, `tests/lifecycle.test.cjs` | In-memory MCP and PowerShell startup contracts | Track-type confirmation, send-slot identity, automation actions and startup stop-order/rejection tests passed |
 | `native/bridge/NativeProjectModel.h`, `cubase_track_create` | Native operation 9 | MIDI/instrument/Group/FX/folder construction; Group/FX factory tokens corrected; fresh-reopen semantic acceptance passed |
 | `native/bridge/NativePluginServices.h`, `cubase_plugin_unload` | Native operation 10 | MonoDelay load/unload and empty-slot confirmation observed without a prompt |
@@ -160,6 +160,7 @@
 
 | Date | Change |
 | --- | --- |
+| 2026-11-14 | Session 44: fix `0xC0000005` at `exportStage = 4` in `NativeAudioExport.h` (`const void*` 7th parameter on `0x3b14d40`), raise event/automation bounds from `8192` to `131072` with $O(1)$ `std::unordered_set` visited tracking and page-aware `readable` checks, guard `cleanup.ts` against deleting JSON receipts of locked DLL directories, and verify live export + 8659-item snapshot on PID 31100 + 33 focused tests. |
 | 2026-11-11 | Session 43: add automatic cleanup of temporary output older than 1 h (lifecycle request records, `scratch-temp`, atomic-write backups) with a keep manifest, config windows and `npm run cleanup:temp`; 226 tests, real pass removed 550 entries / 179 MB. |
 | 2026-11-11 | Session 41: move machine-local facts out of README into `docs/local-environment.md` and round/revision history into `CHANGELOG.md`; README rewritten as a usage document; no code or controller change. |
 | 2026-11-10 | Session 35: register the built MCP server with Claude Code, Codex, VS Code/Insiders and Copilot; native client queries and read-only 53-tool handshake passed; existing chat refresh remains unverified. |

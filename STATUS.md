@@ -4,7 +4,14 @@ Version: 0.1.0. The built server exposes **53 tools**. Session 34 fixed the Grou
 
 Repository: <https://github.com/Asakitan/CubaseMCP> (public, `main`).
 
-## Current increment: session 43
+## Current increment: session 44
+
+- Fixed the `0xC0000005` access violation at `exportStage = 4` in `native/bridge/NativeAudioExport.h`: the 7th parameter of the host format constructor `0x3b14d40` (`const wchar_t*` passed to `0x3b7f020`) was typed as `uint32_t`, emitting `mov dword ptr [rsp + 0x30], 0` and leaving the upper 32 bits `[rsp + 0x34..0x37]` uninitialized on the stack; non-zero stack residue produced a bogus pointer `0x????????00000000` dereferenced by `0x3b7f020`. Typing the 7th parameter as `const void*` (`nullptr`) emits `mov qword ptr [rsp + 0x30], 0`.
+- Raised native event/automation discovery and pagination bounds from `8192` to `131072` (`kMaxModelItems = 131072`, page `limit` up to `512`, `model.json` up to `8 MiB`, lifecycle `maxBuffer` `16 MiB`, per-track `cubase_midi_import` events up to `100000`), replaced the $O(N^2)$ `std::vector<void*>` `visited` and `createMixerTrack` diff scans with $O(1)$ `std::unordered_set<void*>`, and made `hostNarrow`/`hostWide` call `VirtualQuery` (`readable`) only on the initial address and across 4 KiB page boundaries.
+- Aligned `result.operationStarted = false` at entry across `exportAudioFile`, `importMidiFile` and `importAudioFile` until the actual host call starts, and updated `src/cleanup.ts` to unlink `CubaseProjectCreate.dll` first when removing a stale `project-create-<id>` directory so a live Cubase process holding the pinned DLL fails immediately without deleting `operation.json`, `create-result.json` or `operation-error.json`.
+- Verified live against PID 31100 (`Make Some Room.cpr`, 8659 total events / 8404 MIDI notes): `model_snapshot` returned `total: 8659` (`error: 0`), and `export_audio` rendered the full 259.048 s stereo 48 kHz / 24-bit WAV (`74,607,808` bytes, `peak: -3.4 dBFS`, `rmsDb: -22.4 dBFS`, `exportStage: 8`, `exception: 0`). Native/TypeScript builds and 33/33 focused tests pass. See [session 44](docs/session-log/session-44.md).
+
+## Earlier increment: session 43
 
 - Temporary output older than one hour is cleaned automatically. Thirty seconds after the stdio transport connects, and hourly after that, the server removes lifecycle request records under `artifacts/project-create-<32 hex>`, entries in `artifacts/scratch-temp`, and `*.before-<id>` / `*.tmp-<id>` atomic-write backups in `artifacts/runtime`. Only names in `artifacts/temp-cleanup-keep.txt` are exempt; reparse points and anything outside `artifacts` are refused, and `managed-projects`, `ipc` and the current launch receipt are never candidates.
 - Settings are optional in `cubase.config.json` under `cleanup` (`enabled`, `retentionHours`, `scratchRetentionHours`; defaults true / 1 / 1). `npm run cleanup:temp -- [--dry-run]` runs the same code on demand with a JSON summary. On this machine the one-hour pass removed 550 entries and freed 179,045,321 bytes with no failure; only 20 request records remained, including both cited by documents.

@@ -14,7 +14,7 @@ The existing MIDI importer already starts after selection: host file system open
 
 1. Construct the NonUI controller (`0x1a80360`) and verify its vtable `0x4267870`. Its `+0x1f9 = 1` branch avoids saving UI preferences in the destructor (`0x1a806d0`).
 2. Reuse the admitted host `FNPath` descriptor (`0x4831d70`). Its `+0x30`, `+0x38`, `+0x58` methods provide name, parent path and file-type description. The filename value is controller ID 4; the explicit directory is stored on this controller's export-settings model.
-3. Select the file format through `0x1a74d80`. Select sample rate (ID 8) and bit depth (ID 9) by inspecting the host's own tables, then read the selected indices back. The bit-depth table contains sample representation, bit count and the host enum; a bit count is not used as an enum.
+3. Select the file format through `0x1a74d80` after constructing the temporary `0x90`-byte format object with `0x3b14d40` (all five string parameters on `0x3b14d40`, including the 7th stack parameter at `[rsp + 0x30]`, are 64-bit `const void*` pointers; session 44 fixed the 7th parameter from `uint32_t` to `const void*` so upper stack bits at `[rsp + 0x34..0x37]` cannot pass a non-null garbage pointer into `0x3b7f020`). Select sample rate (ID 8) and bit depth (ID 9) by inspecting the host's own tables, then read the selected indices back. The bit-depth table contains sample representation, bit count and the host enum; a bit count is not used as an enum.
 4. Preflight the settings predicates without invoking their alert wrapper. Export once with `0x1a6bd30(controller, 1)`, destroy the temporary controller and check the requested output file and unchanged document identity.
 5. `src/audio-info.ts` reads WAV/AIFF/FLAC metadata from the produced file. The MCP result requires format, rate, depth and integer/float representation to match the request. WAVE also has peak/RMS analysis.
 
@@ -38,7 +38,7 @@ Cubase AI 16 accepts at most 32 audio tracks. An import into a project that alre
 
 ## Event discovery and timing edits
 
-`cubase_events_list` (operation 7) reads tracks, parts, audio events and individual MIDI notes. It returns paths, temporary `eventId` values, types, names, lock state, native time values and host-converted project seconds. Notes also include `pitch`, `velocity`, `channel` and the original `velocityNormalized`. Limits are 8192 objects, depth 8 and pages of at most 128 items. Paths and IDs are not durable across structural edits or reopen.
+`cubase_events_list` (operation 7) reads tracks, parts, audio events and individual MIDI notes. It returns paths, temporary `eventId` values, types, names, lock state, native time values and host-converted project seconds. Notes also include `pitch`, `velocity`, `channel` and the original `velocityNormalized`. Limits are 131072 objects (raised from 8192 in session 44, with $O(1)$ `std::unordered_set` cycle detection and page-boundary `VirtualQuery` checks), depth 8 and pages of at most 512 items. Paths and IDs are not durable across structural edits or reopen.
 
 The parent time base is copied into three temporary `MEditContext` descriptors: working base at `0x58`, start base at `0x88` and end base at `0xb8`. Copying only the working base fixed reads but left the inverse conversion inconsistent for a nonzero MIDI part. `native31-note-parent-offset-position.jsonl` preserves the observed wrong position and `confirmed:false`; it is not a pass. Current code synchronizes all three bases and checks current seconds convert back to the observed native value before a time setter.
 

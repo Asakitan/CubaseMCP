@@ -17,6 +17,7 @@ bool hostObject(uintptr_t base, const void* object, size_t length = 8) {
 }
 
 bool exportAudioFile(uintptr_t base, void* file) {
+    result.operationStarted = false;
     AudioExportOptions options{};
     result.exportStage = 1;
     if (!readExact(L"audio-export.bin", &options, sizeof(options)) || options.version != 1 ||
@@ -88,8 +89,8 @@ bool exportAudioFile(uintptr_t base, void* file) {
         unsigned char rawFormat[0x4c]{};
         if (reinterpret_cast<long (__fastcall*)(void*, void*)>(pathMethods[11])(descriptor, rawFormat) != 0) return false;
         alignas(16) unsigned char format[0x90]{};
-        hostFunction<void* (__fastcall*)(void*, const void*, uint32_t, const void*, const void*, const void*, uint32_t)>(base, 0x3b14d40)
-            (format, nullptr, 0, nullptr, nullptr, nullptr, 0);
+        hostFunction<void* (__fastcall*)(void*, const void*, uint32_t, const void*, const void*, const void*, const void*)>(base, 0x3b14d40)
+            (format, nullptr, 0, nullptr, nullptr, nullptr, nullptr);
         hostFunction<void (__fastcall*)(void*, void*)>(base, 0x3b18840)(rawFormat, format);
         const bool formatFound = hostFunction<unsigned char (__fastcall*)(void*, void*)>(base, 0x1a74d80)(controller, format) != 0;
         hostFunction<Void>(base, 0x3b155f0)(format);
@@ -144,6 +145,7 @@ bool exportAudioFile(uintptr_t base, void* file) {
         }
         if (!valid || now() >= request.deadline || GetFileAttributesW(destination) != INVALID_FILE_ATTRIBUTES) return false;
         result.exportStage = 7;
+        result.operationStarted = true;
         result.exportStarted = true;
         hostFunction<void (__fastcall*)(void*, int32_t)>(base, 0x1a6bd30)(controller, 1);
         result.exportReturned = true;

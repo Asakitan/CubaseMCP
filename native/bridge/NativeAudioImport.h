@@ -9,6 +9,7 @@ struct AudioImportOptions {
 static_assert(sizeof(AudioImportOptions) == 0x28, "Host audio import option layout");
 
 bool importAudioFile(uintptr_t base, void* file, void* document) {
+    result.operationStarted = false;
     result.importStage = 11;
     auto manager = *reinterpret_cast<void**>(base + 0x5973480);
     if (!hostObject(base, manager, 0x108) ||
@@ -60,6 +61,7 @@ bool importAudioFile(uintptr_t base, void* file, void* document) {
     __try {
         result.importStage = 13;
         if (now() >= request.deadline) return false;
+        result.operationStarted = true;
         result.importStarted = true;
         const unsigned char accepted = hostFunction<unsigned char (__fastcall*)(void*, void*, unsigned char, void*, void*)>(base, 0x27fb960)
             (pool, paths, 1, clips, &options);

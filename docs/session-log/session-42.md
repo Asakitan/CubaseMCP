@@ -43,3 +43,10 @@ The converter and the project-rate reader were reviewed externally earlier on 20
 
 - A live check of the new error code (it needs a 33rd import into a project at the limit; the fixture test covers the branch).
 - Conversion of AIFF / FLAC sources; the project-rate reader for projects never saved.
+
+## 补充（同一天晚些时候：用干净工程替换换版本的旧工程）
+
+- `cubase_track_edit remove` 只删通道和事件，**素材池里的片段和 `Audio/` 里的文件都不清**，允许列表里也没有"移除未使用媒体"。LabyRinth 的旧工程（v09）挂着 68 个导入音频（3.9 GB），活着的通道只有 16 条；要彻底去掉旧音频只能新建工程（`cubase_project_create`，替换当前会话要 `replaceCurrent` 与 `confirmDiscardChanges`），把需要的文件重新导入、重设推子和总线插入。
+- 在旧工程里"删旧通道、导入新层"的换版本做法容易漏层：对照发现旧工程里的 `low_fx`、`sub_bass` 没有按流水线更新，已交付的几版缺了一处混音决定。新建工程后把导出与旧导出逐样本比较（差异只出现在漏掉的位置）是个有效的核对。
+- 总线插件装进插槽（`cubase_plugin_set`）之后，原来的对象 ID 全部失效（`OBJECT_UNOBSERVED`），要从根重新 `cubase_objects_list` 逐级列下去，才能列到插件对象和它的参数；`cubase_parameter_set` 的 `normalized` 模式能精确复现旧值（限制器输入 0.5541666746 = +2.6 dB、输出 0.7333333492 = −2.0 dB）。
+- `cubase_project_save` 之后后续调用要用返回里的 `save.session`；`cubase_audio_import` 的 `sampleRateMismatch: reject` 在 44.1 kHz 副本上返回 `check: match`，可当导入前检查。

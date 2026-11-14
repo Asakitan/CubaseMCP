@@ -2,7 +2,14 @@
 
 按轮次记录可观察的功能增量。轮次编号与 `docs/session-log/` 一致，测试数字是当时实际运行的结果；`package.json` 版本为 `0.1.0`，仓库尚未打 tag。当前状态和剩余工作以 [STATUS.md](STATUS.md) 为准。
 
-## [0.1.0] - 2026-11-11
+## [0.1.0] - 2026-11-14
+
+### 第 44 轮：修复原生音频导出 `0xC0000005` 并提升大工程事件树上限
+
+- 修复 `native/bridge/NativeAudioExport.h` 在 `exportStage = 4` 调用宿主格式构造函数 `0x3b14d40` 时的 x64 栈参数宽度错误：第 7 个参数（传入 `0x3b7f020` 的 `const wchar_t*`）此前声明为 `uint32_t`，导致编译器生成 `mov dword ptr [rsp + 0x30], 0`，未初始化栈槽高 32 位 `[rsp + 0x34..0x37]`；当事件线程栈残留非零高 32 位时，`0x3b7f020` 解引用伪指针 `0x????????00000000` 触发 `0xC0000005`。改为 `const void*`（`nullptr`）后生成完整的 `mov qword ptr [rsp + 0x30], 0`。
+- 将原生事件树与自动化上限从 `8192` 提升至 `131072`（单页 `limit` 上限提升至 `512`，`model.json` 上限提升至 `8 MiB`，`lifecycle.ts` `maxBuffer` 提升至 `16 MiB`，`cubase_midi_import` 单轨事件上限提升至 `100000`）；将 `collectModel` 的 `visited` 查重与 `createMixerTrack` 的新增对比从 $O(N^2)$ `std::vector` 线性扫描改为 $O(1)$ `std::unordered_set<void*>`，并让 `hostNarrow`/`hostWide` 仅在首地址和跨 4 KiB 页边界时调用 `VirtualQuery`。
+- 统一 `exportAudioFile`、`importMidiFile`、`importAudioFile` 的 `result.operationStarted = false` 初始状态，仅在真正进入宿主写入/渲染调用前才置为 `true`；`src/cleanup.ts` 清理 `project-create-<id>` 时先尝试解除 `CubaseProjectCreate.dll`，避免运行中进程锁住 DLL 时误删同目录的 `.json` 诊断回执。
+- 在实机 PID 31100（`Make Some Room.cpr`，共 8,659 个事件 / 8,404 个音符）上验证通过：`model_snapshot` 返回 `total: 8659`（`error: 0`），`export_audio` 完整导出 259.048 秒 48 kHz / 24-bit 立体声 WAV（`74,607,808` 字节，`peak: -3.4 dBFS`，`rmsDb: -22.4 dBFS`），33/33 项定向测试通过。见 [session 44](docs/session-log/session-44.md)。
 
 ### 第 43 轮：临时输出自动清理
 

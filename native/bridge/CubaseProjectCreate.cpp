@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <cmath>
 #include <stdexcept>
+#include <unordered_set>
 
 // Fixed-build primary lifecycle/import/export operations for an owned Cubase process.
 // No instruction patches, license changes, foreground calls or input synthesis.
@@ -177,6 +178,7 @@ bool documentPathMatches(void* document, const wchar_t* expected) {
 // let a fresh MMidiFilter import it into the active root, close the stream and refresh the document.
 // The import follows the user's MIDI import preferences (destination, tempo-track handling).
 bool importMidiFile(uintptr_t base, void* file, void* document) {
+    result.operationStarted = false;
     using Method = void (__fastcall*)(void*);
     auto fileSystemGlobal = reinterpret_cast<uintptr_t*>(base + 0x5530450);
     if (!readable(fileSystemGlobal, 8) || *fileSystemGlobal != base + 0x59a01b0) return false;
@@ -214,6 +216,7 @@ bool importMidiFile(uintptr_t base, void* file, void* document) {
                 (*(static_cast<unsigned char*>(buffered) + 0x10c) & 4) == 0;
             using Import = uint64_t (__fastcall*)(void*, void*, void*);
             result.importStage = 4;
+            result.operationStarted = true;
             result.importStarted = true;
             const uint64_t value = reinterpret_cast<Import>(filterMethods[0xd0 / 8])(filter, reinterpret_cast<void*>(result.root), usable ? buffered : stream);
             result.importReturned = true;

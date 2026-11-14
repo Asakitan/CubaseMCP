@@ -1,4 +1,5 @@
 #pragma once
+constexpr uint32_t kMaxModelItems = 131072;
 struct ModelOptions { uint32_t version, offset, limit, flags; };
 struct EventEditOptions {
     uint32_t version, field, pathCount, reserved;
@@ -76,7 +77,8 @@ std::string hostNarrow(const char* text) {
     if (!text) return {};
     size_t length = 0;
     while (length <= 512) {
-        if (!readable(text + length, 1)) throw std::runtime_error("Unreadable host text");
+        if ((length == 0 || (reinterpret_cast<uintptr_t>(text + length) & 0xfff) == 0) && !readable(text + length, 1))
+            throw std::runtime_error("Unreadable host text");
         if (!text[length]) return std::string(text, length);
         ++length;
     }
@@ -87,7 +89,10 @@ std::string hostWide(const wchar_t* text) {
     if (!text) return {};
     size_t length = 0;
     while (length <= 1024) {
-        if (!readable(text + length, sizeof(wchar_t))) throw std::runtime_error("Unreadable host name");
+        const auto address = reinterpret_cast<uintptr_t>(text + length);
+        if ((length == 0 || (address & 0xfff) < sizeof(wchar_t) || (address & 0xfff) > 0x1000 - sizeof(wchar_t)) &&
+            !readable(text + length, sizeof(wchar_t)))
+            throw std::runtime_error("Unreadable host name");
         if (!text[length]) break;
         ++length;
     }
@@ -102,7 +107,7 @@ std::string hostWide(const wchar_t* text) {
 }
 
 void collectModel(uintptr_t base, void* parentEvent, void* data, const std::vector<uint32_t>& parentPath,
-                  std::vector<ModelItem>& items, std::vector<void*>& visited) {
+                  std::vector<ModelItem>& items, std::unordered_set<void*>& visited) {
     if (!hostObject(base, data) || parentPath.size() > 8) throw std::runtime_error("Invalid event container");
     auto dataMethods = *reinterpret_cast<uintptr_t**>(data);
     void* cursor = reinterpret_cast<void* (__fastcall*)(void*, uint32_t)>(dataMethods[0xe8 / 8])(data, 0);
@@ -111,12 +116,11 @@ void collectModel(uintptr_t base, void* parentEvent, void* data, const std::vect
     auto cursorMethods = *reinterpret_cast<uintptr_t**>(cursor);
     HostReference context(modelContext(base, parentEvent));
     try {
-        for (uint32_t index = 0; index < 8192; ++index) {
+        for (uint32_t index = 0; index < kMaxModelItems; ++index) {
             void* event = reinterpret_cast<void* (__fastcall*)(void*)>(cursorMethods[0xc8 / 8])(cursor);
             if (!event) return;
-            if (!hostObject(base, event, 0x68) || items.size() >= 8192) throw std::runtime_error("Event discovery bound exceeded");
-            for (void* prior : visited) if (prior == event) throw std::runtime_error("Cycle or duplicate in event tree");
-            visited.push_back(event);
+            if (!hostObject(base, event, 0x68) || items.size() >= kMaxModelItems) throw std::runtime_error("Event discovery bound exceeded");
+            if (!visited.insert(event).second) throw std::runtime_error("Cycle or duplicate in event tree");
             auto methods = *reinterpret_cast<uintptr_t**>(event);
             ModelItem item;
             item.object = event; item.parentData = data; item.parentEvent = parentEvent; item.path = parentPath; item.path.push_back(index);
@@ -173,7 +177,7 @@ void collectModel(uintptr_t base, void* parentEvent, void* data, const std::vect
 }
 
 bool writeModelJson(const std::string& text) {
-    if (text.size() > 1024 * 1024) return false;
+    if (text.size() > 8 * 1024 * 1024) return false;
     wchar_t path[MAX_PATH]{};
     if (!sibling(L"model.json", path, MAX_PATH)) return false;
     HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -210,14 +214,14 @@ std::string modelItemJson(const ModelItem& item) {
 bool snapshotProjectModel(uintptr_t base) {
     ModelOptions options{};
     if (!readExact(L"model-options.bin", &options, sizeof(options)) || options.version != 1 ||
-        options.limit < 1 || options.limit > 128 || options.offset > 8192 || options.flags != 0) return false;
+        options.limit < 1 || options.limit > 512 || options.offset > kMaxModelItems || options.flags != 0) return false;
     try {
         auto root = reinterpret_cast<void*>(result.root);
         if (!hostObject(base, root, 0x68) || *reinterpret_cast<uintptr_t*>(root) != base + 0x4471c40) return false;
         auto methods = *reinterpret_cast<uintptr_t**>(root);
         void* data = reinterpret_cast<void* (__fastcall*)(void*)>(methods[0x230 / 8])(root);
         std::vector<ModelItem> items;
-        std::vector<void*> visited;
+        std::unordered_set<void*> visited;
         collectModel(base, root, data, {}, items, visited);
         std::ostringstream text;
         text.imbue(std::locale::classic());
@@ -253,7 +257,7 @@ bool editProjectEvent(uintptr_t base, void* document) {
         auto rootMethods = *reinterpret_cast<uintptr_t**>(root);
         void* data = reinterpret_cast<void* (__fastcall*)(void*)>(rootMethods[0x230 / 8])(root);
         std::vector<ModelItem> items;
-        std::vector<void*> visited;
+        std::unordered_set<void*> visited;
         collectModel(base, root, data, {}, items, visited);
         const std::vector<uint32_t> wanted(options.path, options.path + options.pathCount);
         const ModelItem* selected = nullptr;
@@ -414,9 +418,9 @@ bool createMixerTrack(uintptr_t base, void* document) {
         auto mixer = *reinterpret_cast<void**>(base + 0x5943ad0);
         if (!hostObject(base, mixer, 0xc80)) return false;
         std::vector<ModelItem> before;
-        std::vector<void*> visited;
-        collectModel(base, root, data, {}, before, visited);
-        if (before.size() >= 8191 || now() >= request.deadline) return false;
+        std::unordered_set<void*> beforeVisited;
+        collectModel(base, root, data, {}, before, beforeVisited);
+        if (before.size() >= kMaxModelItems - 1 || now() >= request.deadline) return false;
 
         result.operationStarted = true;
         void* channel = nullptr;
@@ -439,8 +443,8 @@ bool createMixerTrack(uintptr_t base, void* document) {
         result.operationReturned = true;
 
         std::vector<ModelItem> after;
-        visited.clear();
-        collectModel(base, root, data, {}, after, visited);
+        std::unordered_set<void*> afterVisited;
+        collectModel(base, root, data, {}, after, afterVisited);
         std::ostringstream text;
         text << "{\"root\":\"0x" << std::hex << result.root << "\",\"channelAddress\":\"0x"
              << reinterpret_cast<uintptr_t>(channel) << std::dec << "\",\"kind\":\""
@@ -449,9 +453,7 @@ bool createMixerTrack(uintptr_t base, void* document) {
              << ",\"afterCount\":" << after.size() << ",\"added\":[";
         bool first = true;
         for (const auto& item : after) {
-            bool exists = false;
-            for (const auto& previous : before) if (previous.object == item.object) { exists = true; break; }
-            if (exists) continue;
+            if (beforeVisited.count(item.object)) continue;
             if (!first) text << ',';
             text << modelItemJson(item);
             first = false;

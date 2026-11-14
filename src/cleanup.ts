@@ -144,7 +144,18 @@ export async function cleanupTempFiles(options: TempCleanupOptions = {}): Promis
         result.bytesMatched += measured.bytes;
         result.removals.push({ path: absolute, kind, ageHours, bytes: measured.bytes });
         if (dryRun) return;
-        try { await rm(absolute, { recursive: true, force: false, maxRetries: 2, retryDelay: 100 }); }
+        try {
+            // Unlink the pinned native DLL first when present so a live Cubase process fails before
+            // recursive deletion removes operation.json, create-result.json or operation-error.json.
+            if (kind === 'lifecycle-request') {
+                const dllPath = join(absolute, 'CubaseProjectCreate.dll');
+                try { await rm(dllPath, { force: false }); }
+                catch (dllError) {
+                    if ((dllError as NodeJS.ErrnoException)?.code !== 'ENOENT') throw dllError;
+                }
+            }
+            await rm(absolute, { recursive: true, force: false, maxRetries: 2, retryDelay: 100 });
+        }
         catch (error) {
             result.failed += 1;
             if (result.errors.length < MAX_ERRORS) result.errors.push({ path: absolute, message: describe(error) });

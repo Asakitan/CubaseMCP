@@ -15,14 +15,14 @@ bool projectAutomation(uintptr_t base, void* document) {
     if (!readExact(L"automation.bin", &options, sizeof(options)) || options.version != 2 ||
         options.mode > 5 || options.root != result.root || !options.track || options.reserved ||
         (options.mode != 5 && options.objectId) ||
-        options.offset > 8192 || options.limit < 1 || options.limit > 128 || options.expectedCount > 8192) return false;
+        options.offset > kMaxModelItems || options.limit < 1 || options.limit > 512 || options.expectedCount > kMaxModelItems) return false;
     try {
         void* root = reinterpret_cast<void*>(result.root);
         if (!hostObject(base, root, 0x68) || *reinterpret_cast<uintptr_t*>(root) != base + 0x4471c40) return false;
         auto rootMethods = *reinterpret_cast<uintptr_t**>(root);
         void* data = reinterpret_cast<void* (__fastcall*)(void*)>(rootMethods[0x230 / 8])(root);
         std::vector<ModelItem> projectItems;
-        std::vector<void*> visited;
+        std::unordered_set<void*> visited;
         collectModel(base, root, data, {}, projectItems, visited);
         const ModelItem* selected = nullptr;
         for (const auto& item : projectItems) if (reinterpret_cast<uintptr_t>(item.object) == options.track && item.track) { selected = &item; break; }

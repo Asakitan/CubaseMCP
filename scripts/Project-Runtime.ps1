@@ -42,7 +42,12 @@ function Owned-Process {
     # A launch that was interrupted before its receipt was published leaves a process this record does not describe.
     $holder=Get-Process -Id $receipt.HostPid -ErrorAction SilentlyContinue
     if(-not $holder){throw 'The running Cubase does not match the owned launch receipt: its holder process is gone. It is not adopted or ended.'}
-    [void]$target.Handle;[void]$holder.Handle
+    # Process.Handle comes back empty (no exception) when the process was started by another lifecycle host / session that this one may not open;
+    # without this check the later [Read]($target.Handle,...) call fails with an unreadable IntPtr conversion error (session 08, a stale owned Cubase from an earlier host).
+    $targetHandle=$target.Handle;$holderHandle=$holder.Handle
+    if(-not $targetHandle -or $targetHandle -eq [IntPtr]::Zero -or -not $holderHandle -or $holderHandle -eq [IntPtr]::Zero){
+        throw "The running Cubase (pid $($target.Id)) or its holder process (pid $($holder.Id)) cannot be opened from this process, so its owned lifetime cannot be verified: it was started by another lifecycle host. It is not adopted. End the holder process (pid $($holder.Id)) once - the job closes Cubase with it - move a zero-byte stale %APPDATA%\Steinberg\Cubase 16_64\ApplicationStarted.txt out of the way if the next start reports 'Unexpected startup marker', then retry."
+    }
     $tf=$target.StartTime.ToUniversalTime().ToFileTimeUtc();$hf=$holder.StartTime.ToUniversalTime().ToFileTimeUtc()
     if($target.Id -ne $receipt.ProcessId -or [string]$tf -cne [string]$receipt.processCreationFiletime -or [string]$hf -cne [string]$receipt.holderCreationFiletime){throw 'Owned lifetime mismatch.'}
     $identity=[CubaseAiMcp.FirstOpen26ProcessIdentity]::Read($target.Handle,$target.Id,$tf)
@@ -127,10 +132,10 @@ try {
     }
     if($mode -eq 10 -and ($operation.confirmUnload -ne $true -or $operation.root -notmatch '^0x[0-9a-fA-F]{1,16}$' -or $operation.objectId -lt 1 -or $operation.objectId -gt 2147483647 -or [math]::Truncate($operation.objectId) -ne $operation.objectId)){throw 'Invalid plugin unload request.'}
     if($mode -eq 9 -and ($operation.confirmCreate -ne $true -or $operation.root -notmatch '^0x[0-9a-fA-F]{1,16}$' -or $operation.kind -cnotin @('midi','group','fx','instrument','folder') -or $operation.name -isnot [string] -or $operation.name.Length -lt 1 -or $operation.name.Length -gt 255 -or $operation.name -match '[\x00-\x1f]')){throw 'Invalid track creation request.'}
-    if($mode -eq 7 -and ($operation.offset -lt 0 -or $operation.offset -gt 8192 -or $operation.limit -lt 1 -or $operation.limit -gt 128)){throw 'Invalid model page bounds.'}
+    if($mode -eq 7 -and ($operation.offset -lt 0 -or $operation.offset -gt 131072 -or $operation.limit -lt 1 -or $operation.limit -gt 512)){throw 'Invalid model page bounds.'}
     if($mode -eq 8){
         if($operation.confirmEdit -ne $true -or $operation.root -notmatch '^0x[0-9a-fA-F]{1,16}$' -or $operation.field -cnotin @('position','duration','pitch','velocity') -or $operation.path.Count -lt 2 -or $operation.path.Count -gt 8 -or $operation.expected.type -cnotin @('MAudioEvent','MAudioPartEvent','MMidiPartEvent','MMidiNote') -or $operation.expected.name.Length -gt 255 -or ([string]$operation.expected.name).Contains([char]0)){throw 'Invalid guarded event edit.'}
-        foreach($index in $operation.path){if($index -lt 0 -or $index -gt 8191 -or [math]::Truncate($index) -ne $index){throw 'Invalid event index.'}}
+        foreach($index in $operation.path){if($index -lt 0 -or $index -gt 131071 -or [math]::Truncate($index) -ne $index){throw 'Invalid event index.'}}
         foreach($value in @($operation.seconds,$operation.expected.durationSeconds)){if($null -eq $value -or [double]::IsNaN($value) -or [double]::IsInfinity($value) -or $value -lt 0 -or $value -gt 86400){throw 'Invalid event time.'}}
         $value=$operation.expected.startSeconds
         if($null -eq $value -or [double]::IsNaN($value) -or [double]::IsInfinity($value) -or $value -lt -86400 -or $value -gt 86400){throw 'Invalid expected event position.'}
@@ -349,7 +354,7 @@ try {
     }
     if($mode -in @(7,8,9,10,11,12)){
         $modelPath=Join-Path $directory 'model.json';$modelFile=Get-Item -LiteralPath $modelPath
-        if($modelFile.Length -gt 1MB -or ($modelFile.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Invalid native model result.'}
+        if($modelFile.Length -gt 8MB -or ($modelFile.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Invalid native model result.'}
         $model=Get-Content -LiteralPath $modelPath -Raw -Encoding UTF8|ConvertFrom-Json
         @{ok=$true;action=$operation.action;projectPath=$expected;model=$model;native=$native;artifacts=$directory}|ConvertTo-Json -Depth 12 -Compress
         return

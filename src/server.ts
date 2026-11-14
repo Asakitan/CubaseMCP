@@ -387,9 +387,9 @@ export function createServer(config: Configuration = loadConfig()) {
             channel: z.number().int().min(0).max(15).default(0),
             program: z.number().int().min(0).max(127).optional(),
             notes: z.array(z.object({ pitch: z.number().int().min(0).max(127), start: beat, duration: z.number().finite().positive().max(100000),
-                velocity: z.number().int().min(1).max(127).default(100) }).strict()).max(20000).default([]),
-            controlChanges: z.array(z.object({ controller: z.number().int().min(0).max(127), value: z.number().int().min(0).max(127), beat }).strict()).max(20000).default([]),
-            pitchBends: z.array(z.object({ value: z.number().int().min(-8192).max(8191), beat }).strict()).max(20000).default([])
+                velocity: z.number().int().min(1).max(127).default(100) }).strict()).max(100000).default([]),
+            controlChanges: z.array(z.object({ controller: z.number().int().min(0).max(127), value: z.number().int().min(0).max(127), beat }).strict()).max(100000).default([]),
+            pitchBends: z.array(z.object({ value: z.number().int().min(-8192).max(8191), beat }).strict()).max(100000).default([])
         }).strict()).min(1).max(32)
     }).strict();
 
@@ -444,7 +444,7 @@ export function createServer(config: Configuration = loadConfig()) {
     });
 
     compose('cubase_events_list', 'Read the native track/part/event tree, including individual MIDI notes. Returns each path, temporary eventId, type, name, lock state, host-converted startSeconds/durationSeconds and native time values. MIDI notes also include pitch, 7-bit velocity, channel and the original velocityNormalized. Paths and IDs are lifetime-bound; rediscover after structural changes or reopen. Use exact observed values with cubase_event_edit or cubase_midi_note_edit. No file-write command, selection change or window is used.', {
-        ...session, offset: z.number().int().min(0).max(8192).default(0), limit: z.number().int().min(1).max(128).default(64)
+        ...session, offset: z.number().int().min(0).max(131072).default(0), limit: z.number().int().min(1).max(512).default(64)
     }, true, async (args, signal) => {
         const project = managedProjectOf(await runLifecycle('status', {}, signal));
         lifecycleBusy = true;
@@ -515,13 +515,13 @@ export function createServer(config: Configuration = loadConfig()) {
         } finally { lifecycleBusy = false; }
     }
     compose('cubase_automation_read', 'Read native automation lanes and normalized points belonging to one track from cubase_events_list. Lane rows identify parameterTag and laneEventId (eventId); point rows carry temporary eventId, startSeconds and normalizedValue. The returned paths and IDs are lifetime-bound. Page using nextOffset; rediscover after structural edits or reopen.', {
-        ...automationReference, offset: z.number().int().min(0).max(8192).default(0), limit: z.number().int().min(1).max(128).default(64)
+        ...automationReference, offset: z.number().int().min(0).max(131072).default(0), limit: z.number().int().min(1).max(512).default(64)
     }, true, (args, signal) => automationRequest(args, signal, false));
     compose('cubase_automation_edit', 'Create an automation lane or insert/change/move/delete one point. createLane takes the parameter objectId/expectedUniqueId and expected.laneCount, without lane/point IDs; the parameter must be observed as automatable. Point actions use laneEventId, parameterTag and expected.pointCount from cubase_automation_read. Existing points require pointEventId and exact expected startSeconds/normalizedValue. insert takes positionSeconds/value; setValue takes value; move takes positionSeconds; delete takes neither. Native identity/count checks and readback confirm each change. Requires stopped transport; no replay. Native undo is not certified.', {
         ...automationReference, laneEventId: z.string().regex(/^0x(?!0+$)[0-9a-fA-F]{1,16}$/).optional(), parameterTag: z.number().int().positive().max(2147483647),
         objectId: z.number().int().positive().max(2147483647).optional(), expectedUniqueId: z.string().min(1).max(1024).optional(),
         action: z.enum(['createLane', 'insert', 'setValue', 'move', 'delete']), pointEventId: z.string().regex(/^0x(?!0+$)[0-9a-fA-F]{1,16}$/).optional(),
-        expected: z.object({ pointCount: z.number().int().min(0).max(8192).optional(), laneCount: z.number().int().min(0).max(8192).optional(), startSeconds: z.number().finite().min(-86400).max(86400).optional(),
+        expected: z.object({ pointCount: z.number().int().min(0).max(131072).optional(), laneCount: z.number().int().min(0).max(131072).optional(), startSeconds: z.number().finite().min(-86400).max(86400).optional(),
             normalizedValue: z.number().finite().min(0).max(1).optional() }).strict(),
         positionSeconds: z.number().finite().min(0).max(86400).optional(), value: z.number().finite().min(0).max(1).optional(), confirmEdit: z.literal(true)
     }, false, (args, signal) => automationRequest(args, signal, true));
@@ -644,7 +644,7 @@ export function createServer(config: Configuration = loadConfig()) {
     });
 
     compose('cubase_event_edit', 'Move or trim one existing audio event or MIDI part in place through IProjectObject/MEditContext, without selection commands or reimport. Copy root, path and expected type/name/startSeconds/durationSeconds from cubase_events_list. The native side re-enumerates and rejects any mismatch or locked/track target. field=position sets absolute project seconds; field=duration sets seconds (audio is trimmed, not stretched beyond its current length). Returns before/after from host getters and confirmed; the source file is untouched. Native undo integration is not certified. Stop transport first; never repeated automatically.', {
-        ...session, root: z.string().regex(/^0x[0-9a-fA-F]{1,16}$/), path: z.array(z.number().int().min(0).max(8191)).min(2).max(8),
+        ...session, root: z.string().regex(/^0x[0-9a-fA-F]{1,16}$/), path: z.array(z.number().int().min(0).max(131071)).min(2).max(8),
         expected: z.object({ type: z.enum(['MAudioEvent', 'MAudioPartEvent', 'MMidiPartEvent']), name: z.string().max(255).refine(value => !value.includes('\0')),
             startSeconds: z.number().finite().min(-86400).max(86400), durationSeconds: z.number().finite().min(0).max(86400) }).strict(),
         field: z.enum(['position', 'duration']), seconds: z.number().finite().min(0).max(86400), confirmEdit: z.literal(true)
@@ -665,7 +665,7 @@ export function createServer(config: Configuration = loadConfig()) {
 
     compose('cubase_midi_note_edit', 'Edit one existing MIDI note in place, without selection, reimport or commands. Copy root, path, eventId and all expected fields from cubase_events_list. Sets one field per call: pitch 0..127, velocity 1..127, position in seconds or positive duration in seconds. Requires stopped transport and an unlocked note/parent. Returns actual before/after and confirmed. Does not create notes, alter routing or add instruments. Undo integration is not certified; never replay an unconfirmed mutation.', {
         ...session, root: z.string().regex(/^0x[0-9a-fA-F]{1,16}$/), eventId: z.string().regex(/^0x[0-9a-fA-F]{1,16}$/).refine(value => !/^0x0+$/.test(value)),
-        path: z.array(z.number().int().min(0).max(8191)).min(3).max(8),
+        path: z.array(z.number().int().min(0).max(131071)).min(3).max(8),
         expected: z.object({ name: z.string().max(255).refine(value => !value.includes('\0')), pitch: z.number().int().min(0).max(127),
             velocity: z.number().int().min(0).max(127), channel: z.number().int().min(0).max(15), velocityNormalized: z.number().finite().min(0).max(1),
             startSeconds: z.number().finite().min(-86400).max(86400), durationSeconds: z.number().finite().min(0).max(86400) }).strict(),

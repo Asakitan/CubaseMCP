@@ -24,7 +24,7 @@ export async function runLifecycle(action: LifecycleAction, args: Record<string,
             ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(root, 'scripts', 'Project-Runtime.ps1'), '-RequestPath', requestPath],
             { windowsHide: true, timeout: action === 'export_audio' ? Math.min(600000, Math.max(5000, Number(args.timeoutMs) || 180000)) + 60000
                 : action === 'create' || action === 'open' ? 300000 : 180000,
-                maxBuffer: 1024 * 1024, signal, env: { ...process.env, TEMP: scratch, TMP: scratch } },
+                maxBuffer: 16 * 1024 * 1024, signal, env: { ...process.env, TEMP: scratch, TMP: scratch } },
             (error, stdout, stderr) => {
                 let result: Record<string, unknown>;
                 try { result = JSON.parse(stdout.trim()) as Record<string, unknown>; }
